@@ -1,0 +1,77 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: bastion-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root123}
+      MYSQL_DATABASE: bastion_host
+      MYSQL_USER: bastion
+      MYSQL_PASSWORD: ${DB_PASSWORD:-bastion123}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./server/src/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+    ports:
+      - "3306:3306"
+    restart: unless-stopped
+
+  guacd:
+    image: guacamole/guacd:latest
+    container_name: bastion-guacd
+    ports:
+      - "4822:4822"
+    volumes:
+      - bastion_recordings:/recordings
+    restart: unless-stopped
+
+  bastion:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: bastion-app
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: bastion
+      DB_PASSWORD: ${DB_PASSWORD:-bastion123}
+      DB_NAME: bastion_host
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-min-32-bytes}
+      JWT_EXPIRES_IN: 2h
+      ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6}
+      GUACD_HOST: guacd
+      GUACD_PORT: 4822
+      LOG_LEVEL: info
+      SESSION_IDLE_TIMEOUT: 900
+      SESSION_MAX_DURATION: 28800
+      MAX_SESSIONS_PER_USER: 5
+    volumes:
+      - bastion_recordings:/app/recordings
+    depends_on:
+      mysql:
+        condition: service_healthy
+      guacd:
+        condition: service_started
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: bastion-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - bastion
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  bastion_recordings:

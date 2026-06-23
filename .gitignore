@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+*.log
+recordings/
+*.cast
+*.tar.gz
+.DS_Store
+thumbs.db
+coverage/
+.vite/
