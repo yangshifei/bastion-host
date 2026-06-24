@@ -1,10 +1,10 @@
 import fs from 'fs';
 import path from 'path';
-import { WebSocket, RawData } from 'ws';
+import { RawData } from 'ws';
 import logger from '../utils/logger';
 
 /**
- * Record Guacamole display stream (server→client) by tapping ws.send.
+ * Record Guacamole display stream (server→client) via ClientConnection.send.
  * Compatible with Guacamole.SessionRecording playback.
  */
 export class RdpRecorder {
@@ -22,42 +22,22 @@ export class RdpRecorder {
     logger.info({ filePath: this.filePath }, 'RDP recording started');
   }
 
-  /** Wrap a WebSocket to capture server→client Guacamole protocol (display stream). */
-  static attach(ws: WebSocket, sessionId: string): RdpRecorder {
-    const recorder = new RdpRecorder(sessionId);
-
-    const originalSend = ws.send.bind(ws);
-    ws.send = function sendWithRecord(
-      data: any,
-      optionsOrCb?: any,
-      cb?: any
-    ): void {
-      recorder.write(data);
-      if (typeof optionsOrCb === 'function') {
-        originalSend(data, optionsOrCb);
-      } else if (cb !== undefined) {
-        originalSend(data, optionsOrCb, cb);
-      } else if (optionsOrCb !== undefined) {
-        originalSend(data, optionsOrCb);
-      } else {
-        originalSend(data);
-      }
+  /** Hook ClientConnection.send so only Guacamole display data is recorded. */
+  static hookConnectionSend(connection: { send: (message: string) => void }, recorder: RdpRecorder): void {
+    const originalSend = connection.send.bind(connection);
+    connection.send = (message: string) => {
+      recorder.write(message);
+      originalSend(message);
     };
-
-    ws.on('close', () => {
-      recorder.close();
-    });
-
-    return recorder;
   }
 
-  write(data: RawData): void {
+  write(data: RawData | string): void {
     if (!this.stream || this.closed) return;
     try {
-      const chunk = toBuffer(data);
-      if (chunk.length > 0) {
-        this.stream.write(chunk);
-      }
+      const text = toText(data);
+      if (!text || text.startsWith('{')) return;
+      if (!/^\d+\./.test(text.trimStart())) return;
+      this.stream.write(text, 'utf8');
     } catch (err) {
       logger.warn({ err }, 'RDP recorder write failed');
     }
@@ -108,11 +88,12 @@ export class RdpRecorder {
   }
 }
 
-function toBuffer(data: RawData): Buffer {
-  if (Buffer.isBuffer(data)) return data;
-  if (data instanceof ArrayBuffer) return Buffer.from(data);
+function toText(data: RawData | string): string {
+  if (typeof data === 'string') return data;
+  if (Buffer.isBuffer(data)) return data.toString('utf8');
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString('utf8');
   if (ArrayBuffer.isView(data)) {
-    return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('utf8');
   }
-  return Buffer.from(String(data));
+  return String(data);
 }

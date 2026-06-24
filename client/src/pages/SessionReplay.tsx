@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button, Tag, Slider, Select, MessagePlugin, Table } from 'tdesign-react';
-import { PlayIcon, PauseIcon, ChevronLeftIcon, VideoIcon } from 'tdesign-icons-react';
+import { PlayIcon, PauseIcon, ChevronLeftIcon, VideoIcon, ForwardIcon, BackwardIcon, ReplayIcon } from 'tdesign-icons-react';
 import { sessionService } from '../services/sessionService';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState } from '../components/EmptyState';
@@ -163,7 +163,56 @@ export const SessionReplay: React.FC = () => {
     setPlaying(false);
   };
 
+  // RDP end detection needs tolerance — Guacamole's last position report
+  // may fall slightly short of the total duration.
+  const finished =
+    duration > 0
+      ? currentTime >= Math.max(duration - 2, 0) // 2s tolerance for RDP
+      : frames.length > 0 && currentIndex >= frames.length;
+
   const handleSeekDone = useCallback(() => setSeekTo(null), []);
+
+  const handleReplay = useCallback(() => {
+    if (selectedSession?.protocol === 'rdp') {
+      setCurrentTime(0);
+      setSeekTo(null);
+      setPlaying(true);
+    } else {
+      setCurrentIndex(0);
+      setCurrentTime(0);
+      setPlaying(true);
+    }
+  }, [selectedSession?.protocol]);
+
+  const handleStep = useCallback((delta: number) => {
+    if (selectedSession?.protocol === 'rdp') {
+      setPlaying(false);
+      setCurrentTime((t) => Math.max(0, Math.min(duration, t + delta)));
+      setSeekTo(Math.max(0, Math.min(duration, currentTime + delta)));
+    } else {
+      setPlaying(false);
+      setCurrentIndex((i) => Math.max(0, Math.min(frames.length - 1, i + delta)));
+    }
+  }, [selectedSession?.protocol, duration, currentTime, frames.length]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        setPlaying((p) => !p);
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        handleStep(-5);
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        handleStep(5);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleStep]);
 
   if (id) {
     const isRdp = selectedSession?.protocol === 'rdp';
@@ -187,64 +236,34 @@ export const SessionReplay: React.FC = () => {
         {loading || !selectedSession ? (
           <LoadingSkeleton />
         ) : (
-          <div className="replay-player">
-            <div className="replay-controls">
-              <Button
-                shape="square"
-                variant="outline"
-                icon={playing ? <PauseIcon /> : <PlayIcon />}
-                onClick={() => setPlaying(!playing)}
-              />
-              <span className="text-xs text-slate-400 font-mono">
-                {formatReplayTime(currentTime)} / {formatReplayTime(replayDuration)}
-              </span>
-              {!isRdp && (
-                <span className="text-xs text-slate-500">
-                  {currentIndex}/{frames.length} 帧
+          <div className="replay-player glass-panel overflow-hidden">
+            {/* ── Session metadata bar ── */}
+            {selectedSession && (
+              <div className="replay-meta flex items-center gap-3 px-4 py-2.5 border-b border-white/[0.04] text-xs bg-white/[0.015]">
+                <Tag
+                  theme={selectedSession.protocol === 'ssh' ? 'primary' : 'warning'}
+                  variant="light"
+                  size="small"
+                >
+                  {selectedSession.protocol?.toUpperCase()}
+                </Tag>
+                <span className="text-slate-400">
+                  {selectedSession.username}@{selectedSession.asset_name}
                 </span>
-              )}
-              <Select
-                value={speed}
-                onChange={(v) => setSpeed(v as number)}
-                options={[
-                  { value: 1, label: '1x' },
-                  { value: 2, label: '2x' },
-                  { value: 4, label: '4x' },
-                  { value: 8, label: '8x' },
-                ]}
-                size="small"
-                style={{ width: 72 }}
-              />
-              {!isRdp && frames.length > 0 && (
-                <div className="flex-1 min-w-[120px]">
-                  <Slider
-                    value={currentIndex}
-                    max={Math.max(frames.length - 1, 0)}
-                    onChange={(v) => handleSshSeek(v as number)}
-                  />
-                </div>
-              )}
-              {isRdp && duration > 0 && (
-                <div className="flex-1 min-w-[120px]">
-                  <Slider
-                    value={currentTime}
-                    max={duration}
-                    onChange={(v) => {
-                      setPlaying(false);
-                      setSeekTo(v as number);
-                    }}
-                  />
-                </div>
-              )}
-            </div>
+                <span className="text-slate-600">·</span>
+                <span className="text-slate-500">{selectedSession.start_time}</span>
+              </div>
+            )}
 
-            <div style={{ height: 'calc(100vh - 240px)', minHeight: 400 }}>
+            {/* ── Video display area ── */}
+            <div className="relative" style={{ height: 'calc(100vh - 288px)', minHeight: 360 }}>
               {isRdp && selectedSession ? (
                 <RdpReplayPlayer
                   sessionId={selectedSession.id}
                   playing={playing}
                   seekTo={seekTo}
                   onSeekDone={handleSeekDone}
+                  onPlayingChange={setPlaying}
                   onDuration={setDuration}
                   onProgress={setCurrentTime}
                 />
@@ -256,6 +275,100 @@ export const SessionReplay: React.FC = () => {
                   rows={castSize.rows}
                 />
               )}
+
+              {/* Replay overlay when finished */}
+              {finished && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-10 rounded-lg">
+                  <Button
+                    theme="primary"
+                    size="large"
+                    icon={<ReplayIcon />}
+                    onClick={handleReplay}
+                    className="shadow-lg shadow-cyan-500/20"
+                  >
+                    重新播放
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* ── Control bar ── */}
+            <div className="replay-controls-bar flex items-center gap-3 px-4 py-3 border-t border-white/[0.04] bg-white/[0.015]">
+              {/* Left: play/pause + step + time */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Button
+                  shape="square"
+                  variant="text"
+                  size="small"
+                  icon={<BackwardIcon />}
+                  onClick={() => handleStep(-5)}
+                  title="后退 5 秒"
+                />
+                <Button
+                  shape="square"
+                  variant="text"
+                  icon={finished ? <ReplayIcon /> : playing ? <PauseIcon /> : <PlayIcon />}
+                  onClick={() => finished ? handleReplay() : setPlaying(!playing)}
+                  className="replay-play-btn"
+                  title={finished ? '重新播放' : playing ? '暂停' : '播放'}
+                />
+                <Button
+                  shape="square"
+                  variant="text"
+                  size="small"
+                  icon={<ForwardIcon />}
+                  onClick={() => handleStep(5)}
+                  title="快进 5 秒"
+                />
+                <span className="replay-time text-xs font-mono text-slate-300 ml-2 tabular-nums">
+                  {formatReplayTime(currentTime)}
+                </span>
+              </div>
+
+              {/* Center: progress slider */}
+              <div className="flex-1 min-w-[80px]">
+                {!isRdp && frames.length > 0 && (
+                  <Slider
+                    value={currentIndex}
+                    max={Math.max(frames.length - 1, 0)}
+                    onChange={(v) => handleSshSeek(v as number)}
+                  />
+                )}
+                {isRdp && duration > 0 && (
+                  <Slider
+                    value={currentTime}
+                    max={duration}
+                    onChange={(v) => {
+                      setPlaying(false);
+                      setSeekTo(v as number);
+                    }}
+                  />
+                )}
+              </div>
+
+              {/* Right: total time + speed */}
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs font-mono text-slate-500 tabular-nums">
+                  {formatReplayTime(replayDuration)}
+                </span>
+                {!isRdp && (
+                  <span className="text-[10px] text-slate-600">
+                    {currentIndex}/{frames.length}
+                  </span>
+                )}
+                <Select
+                  value={speed}
+                  onChange={(v) => setSpeed(v as number)}
+                  options={[
+                    { value: 1, label: '1x' },
+                    { value: 2, label: '2x' },
+                    { value: 4, label: '4x' },
+                    { value: 8, label: '8x' },
+                  ]}
+                  size="small"
+                  style={{ width: 68 }}
+                />
+              </div>
             </div>
           </div>
         )}

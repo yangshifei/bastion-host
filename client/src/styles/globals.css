@@ -282,3 +282,45 @@ html[theme-mode='light'] .t-table th { background: rgba(0,0,0,0.02) !important; 
 
 .xterm-viewport::-webkit-scrollbar { width: 7px; }
 .xterm-viewport::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 4px; }
+
+/* ===== Replay Player ===== */
+.replay-player {
+  @apply rounded-xl overflow-hidden;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+}
+.replay-meta {
+  @apply flex items-center gap-3 px-4 py-2.5;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.replay-controls-bar {
+  @apply flex items-center gap-3 px-4 py-3;
+  border-top: 1px solid var(--border-subtle);
+}
+.replay-play-btn {
+  @apply text-cyan-400 hover:text-cyan-300 transition-colors;
+}
+.replay-play-btn .t-icon {
+  font-size: 20px !important;
+}
+.replay-time {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-variant-numeric: tabular-nums;
+  min-width: 52px;
+}
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Bigger slider track & thumb */
+.replay-player .t-slider__rail {
+  height: 5px !important;
+  border-radius: 3px !important;
+}
+.replay-player .t-slider__track {
+  height: 5px !important;
+}
+.replay-player .t-slider__button {
+  width: 14px !important;
+  height: 14px !important;
+}
