@@ -247,6 +247,12 @@ router.get('/:id/recording', async (req: Request, res: Response) => {
       return;
     }
 
+    const stat = fs.statSync(recordingPath);
+    if (stat.size === 0) {
+      error(res, '录像文件为空', 1, 404);
+      return;
+    }
+
     const isCast = rows[0].protocol === 'ssh' || recordingPath.endsWith('.cast');
     res.setHeader(
       'Content-Type',

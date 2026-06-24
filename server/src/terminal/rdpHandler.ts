@@ -112,8 +112,7 @@ export async function handleRDPConnection(
   let logged = false;
   let recordingEnabled = false;
   let recordingFilePath: string | null = null;
-  // Tap WebSocket immediately so Guacamole protocol is not lost during async setup.
-  let recorder: RdpRecorder | null = RdpRecorder.attach(ws, sessionId);
+  let recorder: RdpRecorder | null = null;
 
   const url = new URL(request.url || '', `http://${request.headers.host}`);
   let token = url.searchParams.get('token');
@@ -171,10 +170,8 @@ export async function handleRDPConnection(
       recordingEnabled = asset.recording_enabled !== 0 && asset.recording_enabled !== false;
 
       if (recordingEnabled) {
-        recordingFilePath = recorder!.getPath();
-      } else {
-        recorder?.discard();
-        recorder = null;
+        recorder = new RdpRecorder(sessionId!);
+        recordingFilePath = recorder.getPath();
       }
 
       const [result] = await pool.query<any>(
@@ -224,6 +221,10 @@ export async function handleRDPConnection(
         }
       );
 
+      if (recordingEnabled && recorder) {
+        RdpRecorder.hookConnectionSend(connection, recorder);
+      }
+
       connection.connect({ host: config.guacd.host, port: config.guacd.port });
 
       const managed = sessionManager.get(sessionId!);
@@ -254,10 +255,8 @@ export async function handleRDPConnection(
       logger.info({ sessionId, userId, recordingEnabled, protocol: 'rdp' }, 'RDP session created');
     } catch (err: any) {
       logger.error({ err: err.message }, 'RDP setup failed');
-      if (!recordingEnabled) {
-        recorder?.discard();
-        recorder = null;
-      }
+      recorder?.discard();
+      recorder = null;
       ws.close(4000, '连接失败');
     }
   }
