@@ -30,7 +30,7 @@ export const Layout: React.FC = () => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { user, isAdmin, isAuditor, logout } = useAuth();
-  const { sidebarCollapsed, toggleSidebar } = useAppStore();
+  const { sidebarCollapsed, theme, toggleSidebar, toggleTheme } = useAppStore();
 
   const handleLogout = () => {
     logout();
@@ -90,13 +90,11 @@ export const Layout: React.FC = () => {
         style={{
           width: sidebarCollapsed ? 60 : 232,
           transition: 'width 0.2s ease',
-          background: 'var(--bastion-deep)',
-          borderRight: '1px solid var(--bastion-border)',
         }}
-        className={`sidebar-aside flex flex-col shrink-0${sidebarCollapsed ? ' sidebar-aside--collapsed' : ''}`}
+        className={`sidebar-aside flex flex-col shrink-0 bg-slate-950 border-r border-slate-700/30${sidebarCollapsed ? ' sidebar-aside--collapsed' : ''}`}
       >
         <div
-          className="flex items-center shrink-0 border-b border-white/[0.05]"
+          className="flex items-center shrink-0 border-b border-slate-700/30"
           style={{ height: 52, padding: sidebarCollapsed ? '0 10px' : '0 16px' }}
         >
           {sidebarCollapsed ? (
@@ -120,10 +118,10 @@ export const Layout: React.FC = () => {
           <SidebarNav collapsed={sidebarCollapsed} sections={navSections} />
         </div>
 
-        <div className="shrink-0 border-t border-white/[0.05] px-3 py-3">
+        <div className="shrink-0 border-t border-slate-700/30 px-3 py-3">
           {!sidebarCollapsed && (
-            <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2.5">
-              <p className="text-xs text-slate-300 font-medium truncate">{user?.username}</p>
+            <div className="rounded-lg bg-slate-700/20 border border-slate-600/20 px-3 py-2.5">
+              <p className="text-xs font-medium truncate text-slate-300">{user?.username}</p>
               <p className="text-[10px] text-slate-500 mt-1">{roleLabel}</p>
             </div>
           )}
@@ -132,12 +130,8 @@ export const Layout: React.FC = () => {
 
       <TLayout>
         <Header
-          style={{
-            height: 52,
-            background: 'var(--bastion-surface)',
-            borderBottom: '1px solid var(--bastion-border)',
-          }}
-          className="flex items-center justify-between px-4 shrink-0"
+          style={{ height: 52 }}
+          className="flex items-center justify-between px-4 shrink-0 bg-slate-800 border-b border-slate-700/30"
         >
           <div className="flex items-center gap-3 min-w-0">
             <Button
@@ -154,12 +148,23 @@ export const Layout: React.FC = () => {
             )}
           </div>
 
-          <Dropdown
-            options={[
-              { content: '个人设置', value: 'profile', prefixIcon: <UserCircleIcon /> },
-              { content: '退出登录', value: 'logout', prefixIcon: <LogoutIcon /> },
-            ]}
-            onClick={(data) => {
+          <div className="flex items-center gap-1">
+            <Button
+              variant="text"
+              shape="square"
+              size="small"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? '切换浅色模式' : '切换深色模式'}
+            >
+              {theme === 'dark' ? '☀️' : '🌙'}
+            </Button>
+
+            <Dropdown
+              options={[
+                { content: '个人设置', value: 'profile', prefixIcon: <UserCircleIcon /> },
+                { content: '退出登录', value: 'logout', prefixIcon: <LogoutIcon /> },
+              ]}
+              onClick={(data) => {
               if (data.value === 'logout') handleLogout();
               if (data.value === 'profile') navigate('/profile');
             }}
@@ -171,6 +176,7 @@ export const Layout: React.FC = () => {
               <span className="text-xs text-slate-300">{user?.username}</span>
             </div>
           </Dropdown>
+          </div>
         </Header>
 
         <Content
@@ -179,7 +185,7 @@ export const Layout: React.FC = () => {
               ? 'overflow-hidden p-5 flex flex-col min-h-0'
               : 'overflow-auto p-5 page-content'
           }
-          style={{ background: 'var(--td-bg-color-page, #0a101c)' }}
+          style={{ background: 'var(--td-bg-color-page)' }}
         >
           {!isTerminalPage && <Outlet />}
 

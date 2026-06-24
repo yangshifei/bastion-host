@@ -4,11 +4,33 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Use CSS variables so Tailwind classes auto-switch with theme
+        slate: {
+          50:  'rgb(var(--color-slate-50) / <alpha-value>)',
+          100: 'rgb(var(--color-slate-100) / <alpha-value>)',
+          200: 'rgb(var(--color-slate-200) / <alpha-value>)',
+          300: 'rgb(var(--color-slate-300) / <alpha-value>)',
+          400: 'rgb(var(--color-slate-400) / <alpha-value>)',
+          500: 'rgb(var(--color-slate-500) / <alpha-value>)',
+          600: 'rgb(var(--color-slate-600) / <alpha-value>)',
+          700: 'rgb(var(--color-slate-700) / <alpha-value>)',
+          800: 'rgb(var(--color-slate-800) / <alpha-value>)',
+          900: 'rgb(var(--color-slate-900) / <alpha-value>)',
+          950: 'rgb(var(--color-slate-950) / <alpha-value>)',
+        },
+        white: 'rgb(var(--color-white) / <alpha-value>)',
+        black: 'rgb(var(--color-black) / <alpha-value>)',
+        cyan: {
+          400: '#22d3ee',
+          500: '#06b6d4',
+          600: '#0891b2',
+        },
+        // Legacy bastion colors (backward compat for config references)
         bastion: {
-          deep: '#060a12',
-          page: '#0a101c',
-          surface: '#111827',
-          elevated: '#1a2332',
+          deep: 'rgb(var(--color-slate-950) / <alpha-value>)',
+          page: 'rgb(var(--color-slate-900) / <alpha-value>)',
+          surface: 'rgb(var(--color-slate-800) / <alpha-value>)',
+          elevated: 'rgb(var(--color-slate-700) / <alpha-value>)',
           border: 'rgba(148, 163, 184, 0.12)',
           accent: '#06b6d4',
           'accent-light': '#22d3ee',
@@ -26,27 +48,16 @@ export default {
           'linear-gradient(rgba(6, 182, 212, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(6, 182, 212, 0.03) 1px, transparent 1px)',
         'gradient-radial': 'radial-gradient(ellipse at top, rgba(6, 182, 212, 0.08), transparent 60%)',
       },
-      backgroundSize: {
-        grid: '32px 32px',
-      },
+      backgroundSize: { grid: '32px 32px' },
       animation: {
         'fade-in': 'fadeIn 0.4s ease-out',
         'slide-up': 'slideUp 0.4s ease-out',
         'pulse-soft': 'pulseSoft 3s ease-in-out infinite',
       },
       keyframes: {
-        fadeIn: {
-          '0%': { opacity: '0' },
-          '100%': { opacity: '1' },
-        },
-        slideUp: {
-          '0%': { opacity: '0', transform: 'translateY(12px)' },
-          '100%': { opacity: '1', transform: 'translateY(0)' },
-        },
-        pulseSoft: {
-          '0%, 100%': { opacity: '0.4' },
-          '50%': { opacity: '0.8' },
-        },
+        fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+        slideUp: { '0%': { opacity: '0', transform: 'translateY(12px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+        pulseSoft: { '0%, 100%': { opacity: '0.4' }, '50%': { opacity: '0.8' } },
       },
     },
   },

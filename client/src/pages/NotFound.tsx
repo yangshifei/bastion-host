@@ -7,7 +7,7 @@ export const NotFound: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="flex items-center justify-center h-screen bg-bastion-deep relative overflow-hidden">
+    <div className="flex items-center justify-center h-screen relative overflow-hidden bg-slate-950">
       <div className="absolute inset-0 bg-grid-pattern bg-grid opacity-20" />
       <div className="absolute inset-0 bg-gradient-radial" />
 

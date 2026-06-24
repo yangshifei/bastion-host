@@ -7,7 +7,6 @@ import {
   DateRangePicker,
   Select,
   Input,
-  Tabs,
   MessagePlugin,
 } from 'tdesign-react';
 import type { DateRangeValue } from 'tdesign-react';
@@ -18,6 +17,8 @@ import {
   ErrorCircleIcon,
   FileIcon,
   SecuredIcon,
+  BrowseIcon,
+  TerminalIcon,
 } from 'tdesign-icons-react';
 import { auditService } from '../services/auditService';
 import { PageHeader } from '../components/PageHeader';
@@ -133,8 +134,7 @@ export const AuditLog: React.FC = () => {
     else fetchCommands();
   }, [activeTab, opsPag.page, opsPag.pageSize, cmdPag.page, cmdPag.pageSize, fetchLogs, fetchCommands]);
 
-  const handleTabChange = (v: string | number) => {
-    const tab = v as 'operations' | 'commands';
+  const switchTab = (tab: 'operations' | 'commands') => {
     setActiveTab(tab);
     if (tab === 'operations') opsPag.setPage(1);
     else cmdPag.setPage(1);
@@ -277,16 +277,16 @@ export const AuditLog: React.FC = () => {
   ];
 
   const commandExpandedRow = ({ row }: any) => (
-    <div className="p-4 bg-bastion-deep/80 rounded-lg border border-white/[0.06]">
+    <div className="p-4 rounded-lg bg-slate-900 border border-slate-700/30">
       <p className="text-xs text-slate-500 mb-2">完整命令</p>
-      <pre className="text-xs font-mono text-cyan-300/90 whitespace-pre-wrap break-all leading-relaxed">
+      <pre className="text-xs font-mono whitespace-pre-wrap break-all leading-relaxed text-cyan-400">
         {row.command || '-'}
       </pre>
     </div>
   );
 
   const expandedRow = ({ row }: any) => (
-    <div className="p-4 bg-bastion-deep/80 rounded-lg border border-white/[0.06] max-h-60 overflow-auto">
+    <div className="p-4 rounded-lg max-h-60 overflow-auto bg-slate-900 border border-slate-700/30">
       {row.detail ? (
         <div className="space-y-2 text-sm">
           {Object.entries(row.detail).map(([key, value]) => (
@@ -420,36 +420,67 @@ export const AuditLog: React.FC = () => {
       </div>
 
       <div className="content-card">
-        <Tabs value={activeTab} onChange={handleTabChange}>
-          <Tabs.TabPanel value="operations" label="操作审计">
+        {/* Custom Tab Bar */}
+        <div className="flex items-center border-b px-2" style={{ borderColor: 'var(--border-subtle)' }}>
+          <button
+            type="button"
+            onClick={() => switchTab('operations')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors duration-150 border-b-2 -mb-px ${
+              activeTab === 'operations'
+                ? 'border-cyan-400 text-cyan-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-600'
+            }`}
+          >
+            <FileIcon size="16px" />
+            操作审计
+          </button>
+          <button
+            type="button"
+            onClick={() => switchTab('commands')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors duration-150 border-b-2 -mb-px ${
+              activeTab === 'commands'
+                ? 'border-cyan-400 text-cyan-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-600'
+            }`}
+          >
+            <TerminalIcon size="16px" />
+            命令审计
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        {activeTab === 'operations' && (
+          <>
             {filterBar}
             <Table
               data={logs}
               columns={operationColumns}
               rowKey="id"
-              loading={loading && activeTab === 'operations'}
+              loading={loading}
               pagination={opsPag.paginationProps}
               expandedRow={expandedRow}
               hover
               stripe
               empty={<EmptyState title="暂无审计记录" description="调整筛选条件后重试" />}
             />
-          </Tabs.TabPanel>
-          <Tabs.TabPanel value="commands" label="命令审计">
+          </>
+        )}
+        {activeTab === 'commands' && (
+          <>
             {filterBar}
             <Table
               data={commands}
               columns={commandColumns}
               rowKey="id"
-              loading={loading && activeTab === 'commands'}
+              loading={loading}
               pagination={cmdPag.paginationProps}
               expandedRow={commandExpandedRow}
               hover
               stripe
               empty={<EmptyState title="暂无命令记录" description="SSH 会话中的命令将在此展示" />}
             />
-          </Tabs.TabPanel>
-        </Tabs>
+          </>
+        )}
       </div>
     </div>
   );

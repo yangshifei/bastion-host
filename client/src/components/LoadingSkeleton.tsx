@@ -9,7 +9,7 @@ interface Props {
 export const LoadingSkeleton: React.FC<Props> = ({ fullScreen = false, text = '加载中...' }) => {
   if (fullScreen) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen w-screen" style={{ background: 'var(--bastion-deep)' }}>
+      <div className="flex flex-col items-center justify-center h-screen w-screen bg-slate-950">
         <div className="flex flex-col items-center gap-5">
           <span className="text-4xl">🏰</span>
           <Loading text={text} size="large" />
@@ -19,7 +19,7 @@ export const LoadingSkeleton: React.FC<Props> = ({ fullScreen = false, text = '�
   }
 
   return (
-    <div className="flex items-center justify-center h-48 rounded-xl border border-white/[0.06] bg-bastion-surface/50">
+    <div className="flex items-center justify-center h-48 rounded-xl bg-slate-800 border border-slate-700/30">
       <Loading text={text} />
     </div>
   );

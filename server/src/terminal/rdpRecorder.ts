@@ -4,7 +4,7 @@ import { WebSocket, RawData } from 'ws';
 import logger from '../utils/logger';
 
 /**
- * Record raw Guacamole protocol by tapping WebSocket traffic.
+ * Record Guacamole display stream (server→client) by tapping ws.send.
  * Compatible with Guacamole.SessionRecording playback.
  */
 export class RdpRecorder {
@@ -22,13 +22,9 @@ export class RdpRecorder {
     logger.info({ filePath: this.filePath }, 'RDP recording started');
   }
 
-  /** Wrap a WebSocket to capture bidirectional Guacamole protocol data. */
+  /** Wrap a WebSocket to capture server→client Guacamole protocol (display stream). */
   static attach(ws: WebSocket, sessionId: string): RdpRecorder {
     const recorder = new RdpRecorder(sessionId);
-
-    ws.on('message', (data) => {
-      recorder.write(data);
-    });
 
     const originalSend = ws.send.bind(ws);
     ws.send = function sendWithRecord(

@@ -16,7 +16,7 @@ async function toRecordingBlob(data: unknown): Promise<Blob | null> {
 
   if (data instanceof Blob) {
     if (data.size === 0) return null;
-    return new Blob([await data.arrayBuffer()], { type: 'application/octet-stream' });
+    return data;
   }
 
   if (data instanceof ArrayBuffer) {
@@ -25,6 +25,18 @@ async function toRecordingBlob(data: unknown): Promise<Blob | null> {
   }
 
   return null;
+}
+
+function fitDisplayToContainer(display: any, container: HTMLDivElement) {
+  const remoteWidth = display.getWidth();
+  const remoteHeight = display.getHeight();
+  if (!remoteWidth || !remoteHeight) return;
+
+  const scale = Math.min(
+    container.clientWidth / remoteWidth,
+    container.clientHeight / remoteHeight
+  );
+  display.scale(Math.max(scale, 0.1));
 }
 
 export const RdpReplayPlayer: React.FC<Props> = ({
@@ -79,6 +91,7 @@ export const RdpReplayPlayer: React.FC<Props> = ({
         }
 
         recording = new Guacamole.SessionRecording(blob);
+
         if (cancelled || loadGen !== loadGenRef.current) {
           recording.abort?.();
           return;
@@ -108,12 +121,26 @@ export const RdpReplayPlayer: React.FC<Props> = ({
           if (cancelled || loadGen !== loadGenRef.current || !containerRef.current) return;
           containerRef.current.innerHTML = '';
           const display = recording.getDisplay();
-          containerRef.current.appendChild(display.getElement());
-          const durationMs = recording.getDuration();
-          if (durationMs > 0) {
-            onDurationRef.current?.(durationMs / 1000);
-          }
-          setLoading(false);
+          const displayElement = display.getElement();
+          containerRef.current.appendChild(displayElement);
+
+          display.onresize = () => {
+            if (containerRef.current) {
+              fitDisplayToContainer(display, containerRef.current);
+            }
+          };
+
+          recording.seek(0, () => {
+            if (cancelled || loadGen !== loadGenRef.current) return;
+            if (containerRef.current) {
+              fitDisplayToContainer(display, containerRef.current);
+            }
+            const durationMs = recording.getDuration();
+            if (durationMs > 0) {
+              onDurationRef.current?.(durationMs / 1000);
+            }
+            setLoading(false);
+          });
         };
       } catch (err: any) {
         if (!cancelled && loadGen === loadGenRef.current) {
@@ -134,10 +161,18 @@ export const RdpReplayPlayer: React.FC<Props> = ({
 
     return () => {
       cancelled = true;
-      recording?.pause?.();
+      const rec = recordingRef.current ?? recording;
+      try {
+        rec?.pause?.();
+        rec?.abort?.();
+      } catch {
+        /* ignore cleanup errors */
+      }
       if (loadGen === loadGenRef.current) {
-        recording?.abort?.();
         recordingRef.current = null;
+      }
+      if (containerRef.current) {
+        containerRef.current.innerHTML = '';
       }
     };
   }, [sessionId]);

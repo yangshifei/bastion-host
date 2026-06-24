@@ -2,21 +2,29 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { ConfigProvider } from 'tdesign-react';
 import Guacamole from 'guacamole-common-js';
+import { useAppStore } from './stores/appStore';
 import App from './App';
 import './styles/globals.css';
+import { applyGuacamolePatch } from './guacamole-patch';
 
-// Expose Guacamole globally for RDP client components
 (window as any).Guacamole = Guacamole;
+applyGuacamolePatch();
 
-// TDesign dark mode configuration
-const darkThemeConfig = {
-  classPrefix: 't',
+// Apply theme attribute to <html> from the persisted store
+const ThemeSync: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const theme = useAppStore((s) => s.theme);
+  React.useEffect(() => {
+    document.documentElement.setAttribute('theme-mode', theme);
+  }, [theme]);
+  return <>{children}</>;
 };
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ConfigProvider globalConfig={darkThemeConfig}>
-      <App />
+    <ConfigProvider globalConfig={{ classPrefix: 't' }}>
+      <ThemeSync>
+        <App />
+      </ThemeSync>
     </ConfigProvider>
   </React.StrictMode>
 );

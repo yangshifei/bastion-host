@@ -119,7 +119,7 @@ export const Login: React.FC = () => {
         : '使用备用恢复码登录（每个恢复码仅能使用一次）';
 
   return (
-    <div className="flex h-screen overflow-hidden bg-bastion-deep">
+    <div className="flex h-screen overflow-hidden bg-slate-950">
       {/* Brand panel */}
       <div className="hidden lg:flex lg:w-[52%] relative flex-col justify-between p-12 overflow-hidden">
         <div className="absolute inset-0 bg-grid-pattern bg-grid opacity-30" />
