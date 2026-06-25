@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Form, InputNumber, Switch, Button, Input, Tag, Space, Popconfirm, MessagePlugin, Divider } from 'tdesign-react';
+import { Form, Switch, Button, Input, Tag, Space, Popconfirm, MessagePlugin, Divider } from 'tdesign-react';
 import { RefreshIcon, AddIcon, DeleteIcon, SecuredIcon } from 'tdesign-icons-react';
 import { securityService, PasswordPolicy, IpWhitelistEntry } from '../services/securityService';
 import { PageHeader } from '../components/PageHeader';
@@ -68,7 +68,16 @@ export const SecuritySettings: React.FC = () => {
     } catch { MessagePlugin.error('操作失败'); }
   };
 
-  if (!policy) return null;
+  if (!policy) {
+    return (
+      <div>
+        <PageHeader title="安全策略" description="配置登录安全规则、密码策略与 IP 访问控制" />
+        <div className="content-card flex items-center justify-center h-48">
+          <p className="text-sm text-slate-500">加载中...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -79,16 +88,16 @@ export const SecuritySettings: React.FC = () => {
         <SectionCard title="密码策略" description="配置复杂度要求、过期规则与历史记录">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormItem label="最小长度" help="8-64 位">
-              <InputNumber value={policy.min_length} min={8} max={64}
-                onChange={(v) => savePolicy('min_length', v)} />
+              <Input type="number" value={String(policy.min_length)}
+                onChange={(v) => savePolicy('min_length', parseInt(v) || 8)} style={{ width: 120 }} />
             </FormItem>
             <FormItem label="密码过期天数" help="0 = 永不过期">
-              <InputNumber value={policy.expire_days} min={0} max={365}
-                onChange={(v) => savePolicy('expire_days', v)} />
+              <Input type="number" value={String(policy.expire_days)}
+                onChange={(v) => savePolicy('expire_days', parseInt(v) || 0)} style={{ width: 120 }} />
             </FormItem>
             <FormItem label="历史记录数量" help="0 = 不限制，最多 20">
-              <InputNumber value={policy.history_count} min={0} max={20}
-                onChange={(v) => savePolicy('history_count', v)} />
+              <Input type="number" value={String(policy.history_count)}
+                onChange={(v) => savePolicy('history_count', parseInt(v) || 0)} style={{ width: 120 }} />
             </FormItem>
           </div>
 
@@ -122,16 +131,16 @@ export const SecuritySettings: React.FC = () => {
         <SectionCard title="防暴力破解" description="CAPTCHA 触发阈值与账号锁定策略">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <FormItem label="CAPTCHA 触发次数" help="失败 N 次后需要验证码">
-              <InputNumber value={policy.captcha_threshold} min={1} max={10}
-                onChange={(v) => savePolicy('captcha_threshold', v)} />
+              <Input type="number" value={String(policy.captcha_threshold)}
+                onChange={(v) => savePolicy('captcha_threshold', parseInt(v) || 3)} style={{ width: 120 }} />
             </FormItem>
             <FormItem label="账号锁定阈值" help="失败 N 次后锁定">
-              <InputNumber value={policy.lockout_threshold} min={5} max={20}
-                onChange={(v) => savePolicy('lockout_threshold', v)} />
+              <Input type="number" value={String(policy.lockout_threshold)}
+                onChange={(v) => savePolicy('lockout_threshold', parseInt(v) || 10)} style={{ width: 120 }} />
             </FormItem>
             <FormItem label="锁定时长（分钟）" help="5-1440 分钟">
-              <InputNumber value={policy.lockout_minutes} min={5} max={1440}
-                onChange={(v) => savePolicy('lockout_minutes', v)} />
+              <Input type="number" value={String(policy.lockout_minutes)}
+                onChange={(v) => savePolicy('lockout_minutes', parseInt(v) || 15)} style={{ width: 120 }} />
             </FormItem>
           </div>
         </SectionCard>
@@ -150,8 +159,8 @@ export const SecuritySettings: React.FC = () => {
                 placeholder="如 10.0.0.0" style={{ width: 140 }} />
             </FormItem>
             <FormItem label="掩码" style={{ marginBottom: 0 }}>
-              <InputNumber value={wlForm.mask} min={0} max={32}
-                onChange={(v) => setWlForm({ ...wlForm, mask: v as number })} style={{ width: 80 }} />
+              <Input type="number" value={String(wlForm.mask)}
+                onChange={(v) => setWlForm({ ...wlForm, mask: parseInt(v) || 24 })} style={{ width: 80 }} />
             </FormItem>
             <FormItem label="备注" style={{ marginBottom: 0 }}>
               <Input value={wlForm.description} onChange={(v) => setWlForm({ ...wlForm, description: v })}
