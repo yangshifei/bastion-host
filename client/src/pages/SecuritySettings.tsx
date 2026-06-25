@@ -8,7 +8,14 @@ import { SectionCard } from '../components/SectionCard';
 const { FormItem } = Form;
 
 export const SecuritySettings: React.FC = () => {
-  const [policy, setPolicy] = useState<PasswordPolicy | null>(null);
+  const DEFAULT_POLICY: PasswordPolicy = {
+    min_length: 8, require_upper: true, require_lower: true, require_digit: true,
+    require_special: false, expire_days: 90, history_count: 5,
+    force_change_on_create: true, captcha_threshold: 3,
+    lockout_threshold: 10, lockout_minutes: 15,
+  };
+
+  const [policy, setPolicy] = useState<PasswordPolicy>(DEFAULT_POLICY);
   const [whitelist, setWhitelist] = useState<IpWhitelistEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -25,14 +32,15 @@ export const SecuritySettings: React.FC = () => {
       if (pres.code === 0 && pres.data) {
         setPolicy(pres.data);
       } else {
-        setLoadError(pres.message || '获取密码策略失败');
-        return;
+        console.error('getPasswordPolicy failed:', pres);
+        setLoadError(pres.message || `获取密码策略失败 (code: ${pres.code})`);
       }
       if (wres.code === 0 && wres.data) {
         setWhitelist(wres.data);
       }
     } catch (err: any) {
-      setLoadError(err?.response?.data?.message || err?.message || '请求失败，请检查服务器日志');
+      console.error('loadData error:', err);
+      setLoadError(err?.response?.data?.message || err?.message || `请求失败 (HTTP ${err?.response?.status || '?'})`);
     } finally {
       setLoading(false);
     }
@@ -79,29 +87,16 @@ export const SecuritySettings: React.FC = () => {
     } catch { MessagePlugin.error('操作失败'); }
   };
 
-  if (!policy) {
-    return (
-      <div>
-        <PageHeader title="安全策略" description="配置登录安全规则、密码策略与 IP 访问控制" />
-        <div className="content-card flex flex-col items-center justify-center gap-3 h-48">
-          {loading ? (
-            <p className="text-sm text-slate-500">加载中...</p>
-          ) : loadError ? (
-            <>
-              <p className="text-sm text-red-400">{loadError}</p>
-              <Button variant="outline" size="small" icon={<RefreshIcon />} onClick={loadData}>重试</Button>
-            </>
-          ) : (
-            <p className="text-sm text-slate-500">暂无数据</p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div>
       <PageHeader title="安全策略" description="配置登录安全规则、密码策略与 IP 访问控制" />
+
+      {loadError && (
+        <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-between">
+          <span className="text-sm text-red-400">{loadError}</span>
+          <Button variant="outline" size="small" icon={<RefreshIcon />} onClick={loadData}>重试</Button>
+        </div>
+      )}
 
       <div className="space-y-5">
         {/* ── Password Policy ── */}
