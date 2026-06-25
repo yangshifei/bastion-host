@@ -484,6 +484,28 @@ html[theme-mode='light'] .t-table th { background: rgba(0,0,0,0.02) !important; 
   height: 14px !important;
 }
 
+/* ===== Security Settings ===== */
+.security-setting-row {
+  @apply flex items-center justify-between gap-4 px-5 py-3.5;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.security-setting-row:last-child {
+  border-bottom: none;
+}
+.security-policy-preview {
+  @apply px-5 py-4;
+  border-bottom: 1px solid var(--border-subtle);
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.04), transparent);
+}
+.security-strength-bar {
+  @apply h-1.5 rounded-full overflow-hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+.security-strength-fill {
+  @apply h-full rounded-full transition-all duration-500;
+  background: linear-gradient(90deg, #06b6d4, #22d3ee);
+}
+
 /* ===== Popconfirm ===== */
 .t-popconfirm__content {
   border-radius: 14px !important;

@@ -8,6 +8,7 @@ import { notificationService } from '../services/notificationService';
 import { recordAudit, auditFromReq } from '../middleware/audit';
 import pool from '../database/connection';
 import { success, error } from '../utils/response';
+import logger from '../utils/logger';
 
 /** Simple CIDR validation */
 function isValidCidr(network: string, mask: number): boolean {
@@ -17,7 +18,6 @@ function isValidCidr(network: string, mask: number): boolean {
 }
 
 const router = Router();
-router.use(authenticate);
 
 // ── Schemas ──
 const updatePolicySchema = z.object({
@@ -42,18 +42,24 @@ const addIpSchema = z.object({
 
 // ═══════════════════ Password Policy ═══════════════════
 
+// GET /api/security/ping — verify routes are loaded
+router.get('/ping', (_req: Request, res: Response) => {
+  success(res, { loaded: true });
+});
+
 // GET /api/security/password-policy
 router.get('/password-policy', async (_req: Request, res: Response) => {
   try {
     const policy = await passwordPolicyService.getPolicy();
     success(res, policy);
   } catch (err: any) {
-    error(res, err.message, 1, 500);
+    logger.error({ err }, 'GET /password-policy failed');
+    error(res, err?.message || 'Unknown error', 1, 500);
   }
 });
 
 // PUT /api/security/password-policy (admin only)
-router.put('/password-policy', requireAdmin, validate(updatePolicySchema), async (req: Request, res: Response) => {
+router.put('/password-policy', authenticate, requireAdmin, validate(updatePolicySchema), async (req: Request, res: Response) => {
   try {
     const policy = await passwordPolicyService.updatePolicy(req.body);
     await recordAudit({
@@ -71,7 +77,7 @@ router.put('/password-policy', requireAdmin, validate(updatePolicySchema), async
 // ═══════════════════ IP Whitelist ═══════════════════
 
 // GET /api/security/ip-whitelist
-router.get('/ip-whitelist', requireAdmin, async (_req: Request, res: Response) => {
+router.get('/ip-whitelist', authenticate, requireAdmin, async (_req: Request, res: Response) => {
   try {
     const [rows] = await pool.query<any[]>(
       `SELECT id, network, mask, description, enabled, created_at FROM ip_whitelist ORDER BY id`
@@ -83,7 +89,7 @@ router.get('/ip-whitelist', requireAdmin, async (_req: Request, res: Response) =
 });
 
 // POST /api/security/ip-whitelist (admin only)
-router.post('/ip-whitelist', requireAdmin, validate(addIpSchema), async (req: Request, res: Response) => {
+router.post('/ip-whitelist', authenticate, requireAdmin, validate(addIpSchema), async (req: Request, res: Response) => {
   try {
     const { network, mask, description } = req.body;
     if (!isValidCidr(network, mask)) {
@@ -108,7 +114,7 @@ router.post('/ip-whitelist', requireAdmin, validate(addIpSchema), async (req: Re
 });
 
 // DELETE /api/security/ip-whitelist/:id (admin only)
-router.delete('/ip-whitelist/:id', requireAdmin, async (req: Request, res: Response) => {
+router.delete('/ip-whitelist/:id', authenticate, requireAdmin, async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
     await pool.query('DELETE FROM ip_whitelist WHERE id = ?', [id]);
@@ -125,7 +131,7 @@ router.delete('/ip-whitelist/:id', requireAdmin, async (req: Request, res: Respo
 });
 
 // PATCH /api/security/ip-whitelist/:id (admin only)
-router.patch('/ip-whitelist/:id', requireAdmin, async (req: Request, res: Response) => {
+router.patch('/ip-whitelist/:id', authenticate, requireAdmin, async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
     const { enabled } = req.body;
@@ -139,7 +145,7 @@ router.patch('/ip-whitelist/:id', requireAdmin, async (req: Request, res: Respon
 // ═══════════════════ Notifications ═══════════════════
 
 // GET /api/notifications
-router.get('/notifications', async (req: Request, res: Response) => {
+router.get('/notifications', authenticate, async (req: Request, res: Response) => {
   try {
     const unreadOnly = req.query.unread_only === 'true';
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
@@ -152,7 +158,7 @@ router.get('/notifications', async (req: Request, res: Response) => {
 });
 
 // GET /api/notifications/unread-count
-router.get('/notifications/unread-count', async (req: Request, res: Response) => {
+router.get('/notifications/unread-count', authenticate, async (req: Request, res: Response) => {
   try {
     const count = await notificationService.getUnreadCount(req.user!.userId);
     success(res, { count });
@@ -162,7 +168,7 @@ router.get('/notifications/unread-count', async (req: Request, res: Response) =>
 });
 
 // POST /api/notifications/mark-read
-router.post('/notifications/mark-read', async (req: Request, res: Response) => {
+router.post('/notifications/mark-read', authenticate, async (req: Request, res: Response) => {
   try {
     const { ids, all } = req.body;
     await notificationService.markRead(req.user!.userId, ids, !!all);

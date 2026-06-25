@@ -33,50 +33,46 @@ export interface LoginNotification {
 }
 
 export const securityService = {
-  // ── Password Policy ──
   getPasswordPolicy(): Promise<ApiResponse<PasswordPolicy>> {
-    return api.get('/security/password-policy');
+    return api.get('/security/password-policy').then(r => r.data);
   },
 
   updatePasswordPolicy(updates: Partial<PasswordPolicy>): Promise<ApiResponse<PasswordPolicy>> {
-    return api.put('/security/password-policy', updates);
+    return api.put('/security/password-policy', updates).then(r => r.data);
   },
 
-  // ── IP Whitelist ──
   getIpWhitelist(): Promise<ApiResponse<IpWhitelistEntry[]>> {
-    return api.get('/security/ip-whitelist');
+    return api.get('/security/ip-whitelist').then(r => r.data);
   },
 
   addIpWhitelist(entry: { network: string; mask: number; description?: string }): Promise<ApiResponse<any>> {
-    return api.post('/security/ip-whitelist', entry);
+    return api.post('/security/ip-whitelist', entry).then(r => r.data);
   },
 
   deleteIpWhitelist(id: number): Promise<ApiResponse<any>> {
-    return api.delete(`/security/ip-whitelist/${id}`);
+    return api.delete(`/security/ip-whitelist/${id}`).then(r => r.data);
   },
 
   updateIpWhitelist(id: number, data: { enabled?: boolean }): Promise<ApiResponse<any>> {
-    return api.patch(`/security/ip-whitelist/${id}`, data);
+    return api.patch(`/security/ip-whitelist/${id}`, data).then(r => r.data);
   },
 
-  // ── Notifications ──
   getNotifications(unreadOnly?: boolean, limit?: number): Promise<ApiResponse<{ list: LoginNotification[]; unread_count: number }>> {
     const params = new URLSearchParams();
     if (unreadOnly) params.set('unread_only', 'true');
     if (limit) params.set('limit', String(limit));
-    return api.get(`/notifications?${params.toString()}`);
+    return api.get(`/notifications?${params.toString()}`).then(r => r.data);
   },
 
   getUnreadCount(): Promise<ApiResponse<{ count: number }>> {
-    return api.get('/notifications/unread-count');
+    return api.get('/notifications/unread-count').then(r => r.data);
   },
 
   markNotificationsRead(data: { ids?: number[]; all?: boolean }): Promise<ApiResponse<any>> {
-    return api.post('/notifications/mark-read', data);
+    return api.post('/notifications/mark-read', data).then(r => r.data);
   },
 
-  // ── CAPTCHA ──
   getCaptcha(): Promise<ApiResponse<{ challenge_id: string; question: string; expires_in: number }>> {
-    return api.get('/auth/captcha');
+    return api.get('/auth/captcha').then(r => r.data);
   },
 };

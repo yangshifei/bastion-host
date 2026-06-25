@@ -30,14 +30,45 @@ const DEFAULT_POLICY: PasswordPolicy = {
   lockout_minutes: 15,
 };
 
+function parseConfigValue(raw: unknown): Record<string, unknown> {
+  if (raw == null) return {};
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  if (typeof raw === 'object') {
+    return raw as Record<string, unknown>;
+  }
+  return {};
+}
+
+function normalizePolicy(raw: Record<string, unknown>): PasswordPolicy {
+  return {
+    min_length: Number(raw.min_length ?? DEFAULT_POLICY.min_length),
+    require_upper: Boolean(raw.require_upper ?? DEFAULT_POLICY.require_upper),
+    require_lower: Boolean(raw.require_lower ?? DEFAULT_POLICY.require_lower),
+    require_digit: Boolean(raw.require_digit ?? DEFAULT_POLICY.require_digit),
+    require_special: Boolean(raw.require_special ?? DEFAULT_POLICY.require_special),
+    expire_days: Number(raw.expire_days ?? DEFAULT_POLICY.expire_days),
+    history_count: Number(raw.history_count ?? DEFAULT_POLICY.history_count),
+    force_change_on_create: Boolean(raw.force_change_on_create ?? DEFAULT_POLICY.force_change_on_create),
+    captcha_threshold: Number(raw.captcha_threshold ?? DEFAULT_POLICY.captcha_threshold),
+    lockout_threshold: Number(raw.lockout_threshold ?? DEFAULT_POLICY.lockout_threshold),
+    lockout_minutes: Number(raw.lockout_minutes ?? DEFAULT_POLICY.lockout_minutes),
+  };
+}
+
 export const passwordPolicyService = {
   async getPolicy(): Promise<PasswordPolicy> {
     try {
       const [rows] = await pool.query<any[]>(
         `SELECT config_value FROM system_config WHERE config_key = 'password_policy'`
       );
-      if (rows.length > 0 && rows[0].config_value) {
-        return { ...DEFAULT_POLICY, ...rows[0].config_value };
+      if (rows.length > 0 && rows[0].config_value != null) {
+        return normalizePolicy({ ...DEFAULT_POLICY, ...parseConfigValue(rows[0].config_value) });
       }
     } catch (err) {
       logger.warn({ err }, 'Failed to load password policy, using defaults');
