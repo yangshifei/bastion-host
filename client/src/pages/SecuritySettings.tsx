@@ -15,10 +15,10 @@ const DEFAULT_POLICY: PasswordPolicy = {
 const SettingRow: React.FC<{
   label: string; desc?: string; children: React.ReactNode;
 }> = ({ label, desc, children }) => (
-  <div className="flex items-center justify-between py-3.5 px-5 border-b border-[var(--border-subtle)] last:border-b-0">
-    <div className="min-w-0 mr-4">
-      <div className="text-sm font-medium text-[var(--text-primary)]">{label}</div>
-      {desc && <div className="text-xs text-[var(--text-muted)] mt-0.5">{desc}</div>}
+  <div className="flex items-center justify-between py-3.5 px-5 border-b border-[var(--border-subtle)] last:border-b-0 gap-4">
+    <div className="min-w-0 text-sm">
+      <span className="font-medium text-[var(--text-primary)]">{label}</span>
+      {desc && <span className="text-[var(--text-muted)] ml-2">{desc}</span>}
     </div>
     <div className="shrink-0">{children}</div>
   </div>
