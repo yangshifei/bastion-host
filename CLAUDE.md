@@ -63,3 +63,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+<!-- SPECKIT START -->
+**Active Plan**: [Color Scheme Optimization](specs/001-bastion-host-platform/plan.md)
+**Feature Spec**: [spec.md](specs/001-bastion-host-platform/spec.md)
+**Design Artifacts**:
+- [research.md](specs/001-bastion-host-platform/research.md)
+- [data-model.md](specs/001-bastion-host-platform/data-model.md)
+- [contracts/tokens.md](specs/001-bastion-host-platform/contracts/tokens.md)
+- [quickstart.md](specs/001-bastion-host-platform/quickstart.md)
+<!-- SPECKIT END -->
