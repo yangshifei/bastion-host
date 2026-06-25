@@ -10,19 +10,30 @@ const { FormItem } = Form;
 export const SecuritySettings: React.FC = () => {
   const [policy, setPolicy] = useState<PasswordPolicy | null>(null);
   const [whitelist, setWhitelist] = useState<IpWhitelistEntry[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [wlForm, setWlForm] = useState({ network: '', mask: 24, description: '' });
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const [pres, wres] = await Promise.all([
         securityService.getPasswordPolicy(),
         securityService.getIpWhitelist(),
       ]);
-      if (pres.code === 0 && pres.data) setPolicy(pres.data);
-      if (wres.code === 0 && wres.data) setWhitelist(wres.data);
-    } catch { /* ignore */ } finally {
+      if (pres.code === 0 && pres.data) {
+        setPolicy(pres.data);
+      } else {
+        setLoadError(pres.message || '获取密码策略失败');
+        return;
+      }
+      if (wres.code === 0 && wres.data) {
+        setWhitelist(wres.data);
+      }
+    } catch (err: any) {
+      setLoadError(err?.response?.data?.message || err?.message || '请求失败，请检查服务器日志');
+    } finally {
       setLoading(false);
     }
   }, []);
@@ -72,8 +83,17 @@ export const SecuritySettings: React.FC = () => {
     return (
       <div>
         <PageHeader title="安全策略" description="配置登录安全规则、密码策略与 IP 访问控制" />
-        <div className="content-card flex items-center justify-center h-48">
-          <p className="text-sm text-slate-500">加载中...</p>
+        <div className="content-card flex flex-col items-center justify-center gap-3 h-48">
+          {loading ? (
+            <p className="text-sm text-slate-500">加载中...</p>
+          ) : loadError ? (
+            <>
+              <p className="text-sm text-red-400">{loadError}</p>
+              <Button variant="outline" size="small" icon={<RefreshIcon />} onClick={loadData}>重试</Button>
+            </>
+          ) : (
+            <p className="text-sm text-slate-500">暂无数据</p>
+          )}
         </div>
       </div>
     );
