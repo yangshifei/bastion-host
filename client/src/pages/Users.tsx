@@ -11,7 +11,7 @@ import {
   Popconfirm,
   MessagePlugin,
 } from 'tdesign-react';
-import { AddIcon, DeleteIcon, EditIcon, SearchIcon, RefreshIcon, UserIcon } from 'tdesign-icons-react';
+import { AddIcon, DeleteIcon, EditIcon, SearchIcon, RefreshIcon, UserIcon, SecuredIcon, LockOnIcon, MailIcon, CallIcon } from 'tdesign-icons-react';
 import { userService, UserQuery } from '../services/userService';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
@@ -26,6 +26,41 @@ const ROLE_LABELS: Record<string, string> = {
   auditor: '审计员',
   operator: '操作员',
 };
+
+const ROLE_THEME: Record<string, 'danger' | 'warning' | 'primary'> = {
+  admin: 'danger',
+  auditor: 'warning',
+  operator: 'primary',
+};
+
+const ROLE_GRADIENT: Record<string, string> = {
+  admin: 'from-rose-500/20 to-rose-500/5 border-rose-500/20',
+  auditor: 'from-amber-500/20 to-amber-500/5 border-amber-500/20',
+  operator: 'from-cyan-500/20 to-cyan-500/5 border-cyan-500/20',
+};
+
+const ROLE_ICON_COLOR: Record<string, string> = {
+  admin: 'text-rose-400',
+  auditor: 'text-amber-400',
+  operator: 'text-cyan-400',
+};
+
+function initials(name: string): string {
+  return name?.slice(0, 2).toUpperCase() || '?';
+}
+
+function relativeTime(iso: string): string {
+  if (!iso) return '从未登录';
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return '刚刚';
+  if (mins < 60) return `${mins} 分钟前`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} 天前`;
+  return iso.slice(0, 10);
+}
 
 export const Users: React.FC = () => {
   const [users, setUsers] = useState<SafeUser[]>([]);
@@ -54,13 +89,13 @@ export const Users: React.FC = () => {
 
   const openCreate = () => {
     setEditingUser(null);
-    setFormData({ role: 'operator' });
+    setFormData({ role: 'operator', status: 'active' });
     setDialogVisible(true);
   };
 
   const openEdit = (user: SafeUser) => {
     setEditingUser(user);
-    setFormData({ username: user.username, role: user.role, email: user.email, phone: user.phone });
+    setFormData({ username: user.username, role: user.role, email: user.email, phone: user.phone, status: user.status || 'active' });
     setDialogVisible(true);
   };
 
@@ -105,49 +140,80 @@ export const Users: React.FC = () => {
   };
 
   const columns = [
-    { colKey: 'id', title: 'ID', width: 60 },
-    { colKey: 'username', title: '用户名', width: 120 },
+    { colKey: 'id', title: '#', width: 55 },
+    {
+      colKey: 'username',
+      title: '用户',
+      width: 200,
+      cell: ({ row }: any) => (
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br ${ROLE_GRADIENT[row.role] || ROLE_GRADIENT.operator}`}>
+            <span className={`text-xs font-semibold ${ROLE_ICON_COLOR[row.role] || ROLE_ICON_COLOR.operator}`}>
+              {initials(row.username)}
+            </span>
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-slate-100 truncate">{row.username}</p>
+            <p className="text-[11px] text-slate-500">{row.email || '—'}</p>
+          </div>
+        </div>
+      ),
+    },
     {
       colKey: 'role',
       title: '角色',
-      width: 100,
+      width: 90,
       cell: ({ row }: any) => (
-        <Tag theme={row.role === 'admin' ? 'danger' : row.role === 'auditor' ? 'warning' : 'primary'} variant="light" size="small">
+        <Tag theme={ROLE_THEME[row.role] || 'default'} variant="light" size="small">
           {ROLE_LABELS[row.role] || row.role}
-        </Tag>
-      ),
-    },
-    { colKey: 'email', title: '邮箱', ellipsis: true, width: 180 },
-    {
-      colKey: 'mfa_enabled',
-      title: 'MFA',
-      width: 70,
-      cell: ({ row }: any) => (
-        <Tag theme={row.mfa_enabled ? 'success' : 'default'} variant="light" size="small">
-          {row.mfa_enabled ? '已启用' : '未启用'}
         </Tag>
       ),
     },
     {
       colKey: 'status',
       title: '状态',
-      width: 70,
+      width: 80,
       cell: ({ row }: any) => (
-        <Tag theme={row.status === 'active' ? 'success' : 'danger'} variant="light" size="small">
-          {row.status === 'active' ? '启用' : '禁用'}
-        </Tag>
+        <div className="flex items-center gap-1.5">
+          <span className={`w-1.5 h-1.5 rounded-full ${row.status === 'active' ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+          <span className={`text-xs ${row.status === 'active' ? 'text-emerald-400' : 'text-slate-500'}`}>
+            {row.status === 'active' ? '启用' : '禁用'}
+          </span>
+        </div>
       ),
     },
-    { colKey: 'last_login', title: '最后登录', width: 160 },
+    {
+      colKey: 'mfa_enabled',
+      title: 'MFA',
+      width: 75,
+      cell: ({ row }: any) => (
+        <div className="flex items-center gap-1">
+          <SecuredIcon size="14px" className={row.mfa_enabled ? 'text-emerald-400' : 'text-slate-600'} />
+          <span className={`text-xs ${row.mfa_enabled ? 'text-emerald-400' : 'text-slate-500'}`}>
+            {row.mfa_enabled ? '已启用' : '未启用'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      colKey: 'last_login',
+      title: '最近登录',
+      width: 130,
+      cell: ({ row }: any) => (
+        <span className="text-xs text-slate-400" title={row.last_login}>
+          {relativeTime(row.last_login)}
+        </span>
+      ),
+    },
     {
       colKey: 'actions',
       title: '操作',
-      width: 150,
+      width: 130,
       cell: ({ row }: any) => (
         <Space size="small">
-          <Button variant="text" size="small" icon={<EditIcon />} onClick={() => openEdit(row)}>编辑</Button>
+          <Button variant="text" size="small" icon={<EditIcon />} onClick={() => openEdit(row)} />
           <Popconfirm content="确认删除此用户？" onConfirm={() => handleDelete(row.id)}>
-            <Button variant="text" size="small" theme="danger" icon={<DeleteIcon />}>删除</Button>
+            <Button variant="text" size="small" theme="danger" icon={<DeleteIcon />} />
           </Popconfirm>
         </Space>
       ),
@@ -200,38 +266,99 @@ export const Users: React.FC = () => {
 
       <Dialog
         visible={dialogVisible}
-        header={editingUser ? '编辑用户' : '添加用户'}
-        width={540}
+        header={
+          <div className="flex items-center gap-3">
+            <div className={`flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br ${editingUser ? ROLE_GRADIENT[editingUser.role] || ROLE_GRADIENT.operator : ROLE_GRADIENT.operator}`}>
+              <UserIcon size="18px" className={editingUser ? ROLE_ICON_COLOR[editingUser.role] || ROLE_ICON_COLOR.operator : ROLE_ICON_COLOR.operator} />
+            </div>
+            <div>
+              <p className="text-base font-semibold">{editingUser ? '编辑用户' : '添加用户'}</p>
+              <p className="text-xs text-slate-500">{editingUser ? `修改 ${editingUser.username} 的信息` : '创建新的系统账号'}</p>
+            </div>
+          </div>
+        }
+        width={520}
         onClose={() => setDialogVisible(false)}
         onConfirm={handleSave}
       >
-        <Form labelWidth={100} labelAlign="top">
+        <Form labelWidth={80} labelAlign="top">
           <FormItem label="用户名" rules={[{ required: true, message: '请输入用户名' }]}>
-            <Input value={formData.username} onChange={(v) => setFormData({ ...formData, username: v })} disabled={!!editingUser} />
+            <Input
+              value={formData.username}
+              onChange={(v) => setFormData({ ...formData, username: v })}
+              disabled={!!editingUser}
+              prefixIcon={<UserIcon />}
+              placeholder="字母开头，3-32位"
+            />
           </FormItem>
           {!editingUser && (
             <FormItem label="密码" rules={[{ required: true, message: '请输入密码' }]}>
-              <Input type="password" value={formData.password || ''} onChange={(v) => setFormData({ ...formData, password: v })} placeholder="至少8位，含字母和数字" />
+              <Input
+                type="password"
+                value={formData.password || ''}
+                onChange={(v) => setFormData({ ...formData, password: v })}
+                placeholder="至少8位，含字母和数字"
+                prefixIcon={<LockOnIcon />}
+              />
             </FormItem>
           )}
           {editingUser && (
             <FormItem label="新密码">
-              <Input type="password" value={formData.password || ''} onChange={(v) => setFormData({ ...formData, password: v })} placeholder="留空不修改" />
+              <Input
+                type="password"
+                value={formData.password || ''}
+                onChange={(v) => setFormData({ ...formData, password: v })}
+                placeholder="留空则不修改密码"
+                prefixIcon={<LockOnIcon />}
+              />
             </FormItem>
           )}
           <FormItem label="角色" rules={[{ required: true }]}>
-            <Select value={formData.role} onChange={(v) => setFormData({ ...formData, role: v })}
+            <Select
+              value={formData.role}
+              onChange={(v) => setFormData({ ...formData, role: v })}
               options={[
-                { value: 'operator', label: '操作员' },
-                { value: 'admin', label: '管理员' },
-                { value: 'auditor', label: '审计员' },
-              ]} />
+                { value: 'operator', label: '🔧 操作员 — 远程连接已授权资产' },
+                { value: 'admin', label: '🛡️ 管理员 — 系统完全控制权限' },
+                { value: 'auditor', label: '📋 审计员 — 只读审计与回放' },
+              ]}
+            />
           </FormItem>
           <FormItem label="邮箱">
-            <Input value={formData.email} onChange={(v) => setFormData({ ...formData, email: v })} />
+            <Input
+              value={formData.email}
+              onChange={(v) => setFormData({ ...formData, email: v })}
+              placeholder="user@company.com"
+              prefixIcon={<MailIcon />}
+            />
           </FormItem>
-          <FormItem label="手机">
-            <Input value={formData.phone} onChange={(v) => setFormData({ ...formData, phone: v })} />
+          <FormItem label="手机号">
+            <Input
+              value={formData.phone}
+              onChange={(v) => setFormData({ ...formData, phone: v })}
+              placeholder="138xxxx8888"
+              prefixIcon={<CallIcon />}
+            />
+          </FormItem>
+          <FormItem label="账号状态">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, status: formData.status === 'active' ? 'disabled' : 'active' })}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${
+                  formData.status === 'active' ? 'bg-cyan-500' : 'bg-slate-600'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                    formData.status === 'active' ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+              <span className={`text-xs font-medium ${formData.status === 'active' ? 'text-emerald-400' : 'text-slate-500'}`}>
+                {formData.status === 'active' ? '启用 — 允许登录' : '禁用 — 阻止登录'}
+              </span>
+            </div>
           </FormItem>
         </Form>
       </Dialog>

@@ -10,6 +10,8 @@ import { loginLimiter } from '../middleware/rateLimiter';
 import { validate } from '../middleware/validator';
 import { recordAudit, auditFromReq } from '../middleware/audit';
 import { success, error } from '../utils/response';
+import { passwordPolicyService } from '../services/passwordPolicyService';
+import { notificationService } from '../services/notificationService';
 
 const router = Router();
 
@@ -128,10 +130,38 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req: Request, 
     }
 
     // Password valid — reset fail counter
+    const knownIps: string[] = user.known_ips ? (typeof user.known_ips === 'string' ? JSON.parse(user.known_ips) : user.known_ips) : [];
+    const clientIp = ip || '0.0.0.0';
+    const isNewIp = knownIps.length > 0 && !knownIps.includes(clientIp);
+
+    const updatedIps = knownIps.includes(clientIp) ? knownIps : [...knownIps.slice(-19), clientIp];
     await pool.query(
-      'UPDATE users SET login_fails = 0, locked_until = NULL, last_login = NOW() WHERE id = ?',
-      [user.id]
+      'UPDATE users SET login_fails = 0, locked_until = NULL, last_login = NOW(), known_ips = ? WHERE id = ?',
+      [JSON.stringify(updatedIps), user.id]
     );
+
+    // Check password policy (must change / expired)
+    const policy = await passwordPolicyService.getPolicy();
+    if (user.must_change_password) {
+      const token = generateToken(user.id, user.username, user.role);
+      success(res, { token, user: sanitizeUser(user), require_password_change: true }, '请修改初始密码');
+      return;
+    }
+    if (policy.expire_days > 0 && user.password_changed_at) {
+      const changedAt = new Date(user.password_changed_at);
+      const expireAt = new Date(changedAt.getTime() + policy.expire_days * 24 * 60 * 60 * 1000);
+      if (new Date() > expireAt) {
+        await pool.query('UPDATE users SET must_change_password = 1 WHERE id = ?', [user.id]);
+        const token = generateToken(user.id, user.username, user.role);
+        success(res, { token, user: sanitizeUser(user), require_password_change: true }, '密码已过期，请修改密码');
+        return;
+      }
+    }
+
+    // Create notification for new IP login
+    if (isNewIp) {
+      await notificationService.create(user.id, 'new_ip_login', clientIp);
+    }
 
     // If MFA enabled, return intermediate token
     if (user.mfa_enabled) {
@@ -520,9 +550,27 @@ router.post('/change-password', authenticate, validate(changePasswordSchema), as
       return;
     }
 
+    // Validate against password policy
+    const policy = await passwordPolicyService.getPolicy();
+    const policyError = passwordPolicyService.validateComplexity(newPassword, policy);
+    if (policyError) {
+      error(res, policyError, 1, 400);
+      return;
+    }
+
+    // Check password history
+    const reused = await passwordPolicyService.isInHistory(userId, newPassword, policy.history_count);
+    if (reused) {
+      error(res, '不能使用最近使用过的密码', 1, 400);
+      return;
+    }
+
     const newHash = await bcrypt.hash(newPassword, 10);
+
+    // Save to history and update user
+    await passwordPolicyService.addToHistory(userId, newHash, policy.history_count);
     await pool.query(
-      'UPDATE users SET password_hash = ?, password_changed_at = NOW() WHERE id = ?',
+      'UPDATE users SET password_hash = ?, password_changed_at = NOW(), must_change_password = 0 WHERE id = ?',
       [newHash, userId]
     );
 
@@ -532,6 +580,8 @@ router.post('/change-password', authenticate, validate(changePasswordSchema), as
       targetType: 'user',
       targetId: userId,
     });
+
+    await notificationService.create(userId, 'password_changed', (req as any).ip);
 
     success(res, null, '密码修改成功');
   } catch (err: any) {

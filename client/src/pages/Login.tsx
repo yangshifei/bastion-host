@@ -49,6 +49,9 @@ export const Login: React.FC = () => {
         if (data.requireMfa && data.mfaToken) {
           setMfaToken(data.mfaToken);
           setStep('mfa');
+        } else if (data.require_password_change && data.token && data.user) {
+          setAuth(data.token, data.user);
+          navigate('/force-change-password');
         } else if (data.token && data.user) {
           setAuth(data.token, data.user);
           MessagePlugin.success('登录成功');

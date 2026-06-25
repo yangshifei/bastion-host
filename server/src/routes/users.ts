@@ -20,6 +20,7 @@ const createUserSchema = z.object({
   role: z.enum(['admin', 'operator', 'auditor']).default('operator'),
   email: z.string().email().optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
+  status: z.enum(['active', 'disabled']).default('active'),
 });
 
 const updateUserSchema = z.object({
@@ -79,7 +80,7 @@ router.get('/', async (req: Request, res: Response) => {
 // ---- POST /api/users ----
 router.post('/', validate(createUserSchema), async (req: Request, res: Response) => {
   try {
-    const { username, password, role, email, phone } = req.body;
+    const { username, password, role, email, phone, status } = req.body;
 
     // Check uniqueness
     const [existing] = await pool.query<any[]>(
@@ -94,8 +95,8 @@ router.post('/', validate(createUserSchema), async (req: Request, res: Response)
     const passwordHash = await bcrypt.hash(password, 10);
 
     const [result] = await pool.query<any>(
-      'INSERT INTO users (username, password_hash, role, email, phone) VALUES (?, ?, ?, ?, ?)',
-      [username, passwordHash, role, email, phone]
+      'INSERT INTO users (username, password_hash, role, email, phone, status) VALUES (?, ?, ?, ?, ?, ?)',
+      [username, passwordHash, role, email, phone, status || 'active']
     );
 
     await recordAudit({
