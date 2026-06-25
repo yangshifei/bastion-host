@@ -28,6 +28,7 @@ const DEFAULT_POLICY: PasswordPolicy = {
   captcha_threshold: 3,
   lockout_threshold: 10,
   lockout_minutes: 15,
+  require_mfa: false,
 };
 
 const CIDR_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
@@ -487,6 +488,25 @@ export const SecuritySettings: React.FC = () => {
             </SettingRow>
           </div>
         </div>
+      </div>
+
+      {/* MFA policy */}
+      <div className="content-card overflow-hidden mt-5">
+        <PanelHeader
+          icon={<SecuredIcon size="18px" />}
+          title="MFA 策略"
+          desc="全局多因素认证要求（用户绑定 MFA 仍在个人中心完成）"
+        />
+        <SettingRow
+          label="强制全员启用 MFA"
+          desc="开启后，未绑定 MFA 的用户登录后须先完成 MFA 设置才能使用系统"
+        >
+          <RecordingSwitch
+            size="small"
+            value={policy.require_mfa}
+            onChange={(v) => update('require_mfa', v)}
+          />
+        </SettingRow>
       </div>
 
       {/* IP whitelist */}

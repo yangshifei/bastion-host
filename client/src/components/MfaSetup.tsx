@@ -1,11 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, Form, Input, Button, MessagePlugin, Alert, Divider } from 'tdesign-react';
 import QRCode from 'qrcode';
 import { useMfa } from '../hooks/useMfa';
 
 const { FormItem } = Form;
 
-export const MfaSetup: React.FC = () => {
+interface MfaSetupProps {
+  autoOpen?: boolean;
+  onEnabled?: () => void;
+}
+
+export const MfaSetup: React.FC<MfaSetupProps> = ({ autoOpen = false, onEnabled }) => {
   const [visible, setVisible] = useState(false);
   const [code, setCode] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
@@ -21,6 +26,19 @@ export const MfaSetup: React.FC = () => {
       } catch { /* ignore */ }
     }
   };
+
+  useEffect(() => {
+    if (autoOpen) {
+      handleOpen();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen]);
+
+  useEffect(() => {
+    if (state === 'enabled') {
+      onEnabled?.();
+    }
+  }, [state, onEnabled]);
 
   const handleClose = () => {
     setVisible(false);

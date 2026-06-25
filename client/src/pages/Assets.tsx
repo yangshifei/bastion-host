@@ -8,10 +8,15 @@ import {
   RefreshIcon,
   SearchIcon,
   FolderOpenIcon,
+  ServerIcon,
+  TerminalIcon,
+  DesktopIcon,
+  CheckCircleIcon,
 } from 'tdesign-icons-react';
 import { assetService, AssetQuery } from '../services/assetService';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
+import { StatCard } from '../components/StatCard';
 import { EmptyState } from '../components/EmptyState';
 import { useRequestGuard } from '../hooks/useRequestGuard';
 import {
@@ -29,6 +34,7 @@ const { FormItem } = Form;
 export const Assets: React.FC = () => {
   const [assets, setAssets] = useState<SafeAsset[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
+  const [stats, setStats] = useState<{ total: number; ssh: number; rdp: number; online: number; offline: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [dialogVisible, setDialogVisible] = useState(false);
   const [editingAsset, setEditingAsset] = useState<SafeAsset | null>(null);
@@ -52,6 +58,13 @@ export const Assets: React.FC = () => {
     } catch {
       /* ignore */
     }
+  }, []);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await assetService.getStats();
+      if (res.code === 0 && res.data) setStats(res.data);
+    } catch { /* ignore */ }
   }, []);
 
   const fetchAssets = useCallback(async () => {
@@ -90,9 +103,10 @@ export const Assets: React.FC = () => {
   const assetTotal = useMemo(() => countAssetsInTree(treeData), [treeData]);
 
   useEffect(() => {
+    fetchStats();
     fetchAssets();
     fetchGroups();
-  }, [fetchAssets, fetchGroups]);
+  }, [fetchStats, fetchAssets, fetchGroups]);
 
   useEffect(() => {
     setExpandedKeys(treeData.map((node) => node.rowKey));
@@ -371,7 +385,7 @@ export const Assets: React.FC = () => {
         description={`按分组管理 SSH / RDP 远程访问目标，共 ${assetTotal} 个资产、${treeData.length} 个分组`}
       >
         <Space>
-          <Button variant="outline" icon={<RefreshIcon />} onClick={() => { fetchAssets(); fetchGroups(); }}>
+          <Button variant="outline" icon={<RefreshIcon />} onClick={() => { fetchStats(); fetchAssets(); fetchGroups(); }}>
             刷新
           </Button>
           <Upload action="" theme="custom" beforeUpload={handleImport} accept=".csv">
@@ -384,6 +398,13 @@ export const Assets: React.FC = () => {
           </Button>
         </Space>
       </PageHeader>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+        <StatCard title="资产总数" value={stats?.total ?? '-'} subtitle="SSH + RDP" icon={<ServerIcon size="22px" />} accent="cyan" />
+        <StatCard title="SSH" value={stats?.ssh ?? '-'} subtitle="Linux / Unix" icon={<TerminalIcon size="22px" />} accent="blue" />
+        <StatCard title="RDP" value={stats?.rdp ?? '-'} subtitle="Windows" icon={<DesktopIcon size="22px" />} accent="amber" />
+        <StatCard title="在线" value={stats?.online ?? '-'} subtitle={`离线 ${stats?.offline ?? 0} 台`} icon={<CheckCircleIcon size="22px" />} accent="green" />
+      </div>
 
       <div className="content-card">
         <FilterBar>

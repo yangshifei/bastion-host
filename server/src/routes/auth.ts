@@ -12,6 +12,7 @@ import { recordAudit, auditFromReq } from '../middleware/audit';
 import { success, error } from '../utils/response';
 import { passwordPolicyService } from '../services/passwordPolicyService';
 import { notificationService } from '../services/notificationService';
+import { captchaService } from '../services/captchaService';
 
 const router = Router();
 
@@ -19,6 +20,8 @@ const router = Router();
 const loginSchema = z.object({
   username: z.string().min(1).max(64),
   password: z.string().min(1).max(128),
+  captcha_id: z.string().optional(),
+  captcha_answer: z.string().optional(),
 });
 
 const mfaVerifySchema = z.object({
@@ -65,11 +68,30 @@ function sanitizeUser(user: any) {
   };
 }
 
+function loginError(
+  res: Response,
+  message: string,
+  extra?: { requireCaptcha?: boolean; loginFails?: number; locked?: boolean }
+) {
+  error(res, message, 1, 401, extra);
+}
+
+// ---- GET /api/auth/captcha ----
+router.get('/captcha', async (_req: Request, res: Response) => {
+  try {
+    const { id, question, expiresIn } = captchaService.generate();
+    success(res, { challenge_id: id, question, expires_in: expiresIn });
+  } catch (err: any) {
+    error(res, '验证码生成失败: ' + err.message, 1, 500);
+  }
+});
+
 // ---- POST /api/auth/login ----
 router.post('/login', loginLimiter, validate(loginSchema), async (req: Request, res: Response) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, captcha_id, captcha_answer } = req.body;
     const { ip, userAgent } = auditFromReq(req);
+    const policy = await passwordPolicyService.getPolicy();
 
     // Find user
     const [rows] = await pool.query<any[]>(
@@ -83,7 +105,7 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req: Request, 
         'INSERT INTO login_logs (user_id, username, ip, user_agent, result) VALUES (NULL, ?, ?, ?, ?)',
         [username, ip, userAgent, 'fail_no_user']
       );
-      error(res, '用户名或密码错误', 1, 401);
+      loginError(res, '用户名或密码错误');
       return;
     }
 
@@ -91,7 +113,7 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req: Request, 
 
     // Check account disabled
     if (user.status === 'disabled') {
-      error(res, '账号已被禁用', 1, 401);
+      loginError(res, '账号已被禁用');
       return;
     }
 
@@ -101,8 +123,20 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req: Request, 
         'INSERT INTO login_logs (user_id, username, ip, user_agent, result) VALUES (?, ?, ?, ?, ?)',
         [user.id, username, ip, userAgent, 'fail_locked']
       );
-      error(res, '账号已被锁定，请稍后再试', 1, 401);
+      loginError(res, '账号已被锁定，请稍后再试', { locked: true, loginFails: user.login_fails });
       return;
+    }
+
+    const needsCaptcha = user.login_fails >= policy.captcha_threshold;
+    if (needsCaptcha) {
+      if (!captcha_id || captcha_answer === undefined || captcha_answer === '') {
+        loginError(res, '请输入验证码', { requireCaptcha: true, loginFails: user.login_fails });
+        return;
+      }
+      if (!captchaService.verify(captcha_id, captcha_answer)) {
+        loginError(res, '验证码错误或已过期', { requireCaptcha: true, loginFails: user.login_fails });
+        return;
+      }
     }
 
     // Verify password
@@ -111,8 +145,8 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req: Request, 
     if (!validPwd) {
       // Increment login fails
       const fails = user.login_fails + 1;
-      const lockedUntil = fails >= config.security.loginMaxFails
-        ? new Date(Date.now() + config.security.loginLockMinutes * 60 * 1000)
+      const lockedUntil = fails >= policy.lockout_threshold
+        ? new Date(Date.now() + policy.lockout_minutes * 60 * 1000)
         : null;
 
       await pool.query(
@@ -125,7 +159,20 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req: Request, 
         [user.id, username, ip, userAgent, 'fail_wrong_password']
       );
 
-      error(res, '用户名或密码错误', 1, 401);
+      if (lockedUntil) {
+        await notificationService.create(user.id, 'account_locked', ip || undefined);
+        loginError(res, '登录失败次数过多，账号已被锁定', {
+          locked: true,
+          loginFails: fails,
+          requireCaptcha: fails >= policy.captcha_threshold,
+        });
+        return;
+      }
+
+      loginError(res, '用户名或密码错误', {
+        requireCaptcha: fails >= policy.captcha_threshold,
+        loginFails: fails,
+      });
       return;
     }
 
@@ -141,7 +188,6 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req: Request, 
     );
 
     // Check password policy (must change / expired)
-    const policy = await passwordPolicyService.getPolicy();
     if (user.must_change_password) {
       const token = generateToken(user.id, user.username, user.role);
       success(res, { token, user: sanitizeUser(user), require_password_change: true }, '请修改初始密码');
@@ -161,6 +207,13 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req: Request, 
     // Create notification for new IP login
     if (isNewIp) {
       await notificationService.create(user.id, 'new_ip_login', clientIp);
+    }
+
+    // Global MFA policy: must enable MFA before full access
+    if (policy.require_mfa && !user.mfa_enabled) {
+      const token = generateToken(user.id, user.username, user.role);
+      success(res, { token, user: sanitizeUser(user), require_mfa_setup: true }, '请先启用 MFA');
+      return;
     }
 
     // If MFA enabled, return intermediate token

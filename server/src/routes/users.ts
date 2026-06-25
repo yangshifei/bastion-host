@@ -32,6 +32,26 @@ const updateUserSchema = z.object({
   status: z.enum(['active', 'disabled']).optional(),
 });
 
+// ---- GET /api/users/stats ----
+router.get('/stats', async (_req: Request, res: Response) => {
+  try {
+    const [rows] = await pool.query<any[]>(
+      `SELECT
+         COUNT(*) as total,
+         SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) as admins,
+         SUM(CASE WHEN role = 'operator' THEN 1 ELSE 0 END) as operators,
+         SUM(CASE WHEN role = 'auditor' THEN 1 ELSE 0 END) as auditors,
+         SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
+         SUM(CASE WHEN status = 'disabled' THEN 1 ELSE 0 END) as disabled,
+         SUM(CASE WHEN mfa_enabled = 1 THEN 1 ELSE 0 END) as mfa_enabled
+       FROM users WHERE deleted_at IS NULL`
+    );
+    success(res, rows[0]);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
 // ---- GET /api/users ----
 router.get('/', async (req: Request, res: Response) => {
   try {

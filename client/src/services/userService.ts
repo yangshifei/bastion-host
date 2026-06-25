@@ -10,6 +10,10 @@ export interface UserQuery {
 }
 
 export const userService = {
+  getStats(): Promise<ApiResponse<{ total: number; admins: number; operators: number; auditors: number; active: number; disabled: number; mfa_enabled: number }>> {
+    return api.get('/users/stats').then(r => r.data);
+  },
+
   getList(params: UserQuery = {}): Promise<ApiResponse<PaginatedData<SafeUser>>> {
     return api.get('/users', { params }).then(r => r.data);
   },

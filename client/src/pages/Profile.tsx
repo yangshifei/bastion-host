@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, MessagePlugin, Divider } from 'tdesign-react';
+import { useSearchParams } from 'react-router-dom';
+import { Form, Input, Button, MessagePlugin, Divider, Alert } from 'tdesign-react';
 import { UserCircleIcon, LockOnIcon, MailIcon, CallIcon, TimeIcon, CheckCircleIcon } from 'tdesign-icons-react';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
@@ -29,6 +30,8 @@ const ROLE_ICON_COLOR: Record<string, string> = {
 
 
 export const Profile: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const setupMfa = searchParams.get('setupMfa') === '1';
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [mfaEnabled, setMfaEnabled] = useState(false);
@@ -163,7 +166,14 @@ export const Profile: React.FC = () => {
           title="多因素认证 (MFA)"
           description="增强账号安全 — 启用后登录需输入 Authenticator 动态验证码"
         >
-          <MfaSetup />
+          {setupMfa && !mfaEnabled && (
+            <Alert
+              theme="warning"
+              message="系统安全策略要求启用 MFA，请完成下方设置后再使用其他功能"
+              className="mb-4"
+            />
+          )}
+          <MfaSetup autoOpen={setupMfa && !mfaEnabled} onEnabled={loadProfile} />
         </SectionCard>
 
         {/* ── Change Password ── */}

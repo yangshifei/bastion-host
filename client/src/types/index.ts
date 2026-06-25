@@ -150,7 +150,10 @@ export interface LoginResponse {
   user?: SafeUser;
   requireMfa?: boolean;
   require_password_change?: boolean;
+  require_mfa_setup?: boolean;
   mfaToken?: string;
+  requireCaptcha?: boolean;
+  loginFails?: number;
 }
 
 // ---- WebSocket ----

@@ -13,6 +13,7 @@ export interface PasswordPolicy {
   captcha_threshold: number;
   lockout_threshold: number;
   lockout_minutes: number;
+  require_mfa: boolean;
 }
 
 export interface IpWhitelistEntry {

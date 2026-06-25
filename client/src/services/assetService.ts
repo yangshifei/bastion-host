@@ -15,6 +15,10 @@ export const assetService = {
     return api.get('/assets', { params }).then(r => r.data);
   },
 
+  getStats(): Promise<ApiResponse<{ total: number; ssh: number; rdp: number; online: number; offline: number }>> {
+    return api.get('/assets/stats').then(r => r.data);
+  },
+
   getGroups(): Promise<ApiResponse<string[]>> {
     return api.get('/assets/groups').then(r => r.data);
   },
