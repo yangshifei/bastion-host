@@ -336,10 +336,85 @@ html[theme-mode='light'] .t-table th { background: rgba(0,0,0,0.02) !important; 
 .t-tag { border-radius: 5px !important; font-size: 11px !important; padding: 2px 8px !important; }
 .t-form__label { font-size: 0.8125rem !important; font-weight: 500 !important; color: var(--td-text-color-secondary) !important; }
 .t-form__item { margin-bottom: 14px !important; }
-.t-pagination { margin-top: 14px; font-size: 0.8125rem !important; }
-.t-pagination__btn { border-radius: 6px !important; }
+/* ===== Pagination ===== */
+.t-pagination {
+  margin-top: 16px !important;
+  padding: 12px 16px !important;
+  font-size: 0.8125rem !important;
+  background: var(--bg-surface) !important;
+  border-radius: 10px !important;
+  border: 1px solid var(--border-subtle) !important;
+}
+/* total count text */
+.t-pagination__total {
+  font-size: 0.75rem !important;
+  color: var(--text-muted) !important;
+  margin-right: 12px !important;
+}
+/* page buttons */
+.t-pagination__btn {
+  min-width: 32px !important;
+  height: 32px !important;
+  border-radius: 8px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: var(--text-secondary) !important;
+  font-size: 0.8125rem !important;
+  font-weight: 500 !important;
+  transition: all 0.15s ease !important;
+}
+.t-pagination__btn:hover:not(.t-is-disabled):not(.t-is-current) {
+  background: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-primary) !important;
+}
+.t-pagination__btn.t-is-current {
+  background: var(--accent-soft) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+  font-weight: 600 !important;
+}
+.t-pagination__btn.t-is-disabled {
+  opacity: 0.35 !important;
+  cursor: not-allowed !important;
+}
+/* prev/next buttons */
+.t-pagination__pager .t-pagination__btn--prev,
+.t-pagination__pager .t-pagination__btn--next {
+  color: var(--text-muted) !important;
+}
+/* page size selector */
+.t-pagination__select .t-select {
+  width: auto !important;
+}
+.t-pagination__select .t-input {
+  font-size: 0.75rem !important;
+  border-radius: 8px !important;
+  height: 32px !important;
+  min-width: 100px !important;
+  background: var(--bg-page) !important;
+  border-color: var(--border-default) !important;
+}
+/* jumper */
+.t-pagination__jump {
+  font-size: 0.75rem !important;
+  color: var(--text-muted) !important;
+}
+.t-pagination__jump .t-input {
+  width: 48px !important;
+  height: 32px !important;
+  text-align: center !important;
+  font-size: 0.75rem !important;
+  border-radius: 8px !important;
+  background: var(--bg-page) !important;
+  border-color: var(--border-default) !important;
+}
+.t-pagination__jump .t-input:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px var(--td-brand-color-focus) !important;
+}
+
 .t-date-picker .t-input { font-size: 0.8125rem !important; }
-.t-popup__content { border-radius: 10px !important; }
 .t-table__empty { padding: 40px 0 !important; font-size: 0.8125rem !important; }
 
 /* TDesign Tabs — ensure fully visible in both themes */
@@ -352,9 +427,9 @@ html[theme-mode='light'] .t-table th { background: rgba(0,0,0,0.02) !important; 
 .t-tabs__content { padding: 0 !important; }
 
 /* TDesign Switch — ensure visible in both themes */
-.t-switch { background: rgba(148,163,184,0.25) !important; }
+.t-switch { background: rgba(148,163,184,0.40) !important; }
 .t-switch.t-is-checked { background: var(--accent) !important; }
-.t-switch .t-switch__handle { background: #fff !important; }
+.t-switch .t-switch__handle { background: #fff !important; box-shadow: 0 1px 3px rgba(0,0,0,0.15) !important; }
 
 /* Recording switch — legacy layout helpers */
 .recording-switch-cell { display: inline-flex; align-items: center; padding: 2px 0; }
@@ -407,4 +482,94 @@ html[theme-mode='light'] .t-table th { background: rgba(0,0,0,0.02) !important; 
 .replay-player .t-slider__button {
   width: 14px !important;
   height: 14px !important;
+}
+
+/* ===== Popconfirm ===== */
+.t-popconfirm__content {
+  border-radius: 14px !important;
+  border: 1px solid var(--border-default) !important;
+  background: var(--bg-elevated) !important;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.40) !important;
+  backdrop-filter: blur(16px);
+  padding: 18px 20px !important;
+}
+.t-popconfirm__content .t-popconfirm__body {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.t-popconfirm__content .t-icon {
+  color: var(--status-warning);
+  font-size: 18px;
+  margin-top: 1px;
+}
+.t-popconfirm__content .t-popconfirm__inner {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+.t-popconfirm__content .t-popconfirm__icon--default {
+  display: none !important;
+}
+.t-popconfirm__content .t-popconfirm__buttons {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.t-popconfirm__content .t-popconfirm__buttons .t-button--variant-outline {
+  border-color: var(--border-default) !important;
+}
+
+/* ===== Dialog / Modal ===== */
+.t-dialog__ctx .t-dialog {
+  border-radius: 16px !important;
+  border: 1px solid var(--border-default) !important;
+  background: var(--bg-surface) !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.50) !important;
+  overflow: hidden;
+}
+.t-dialog__header {
+  font-size: 0 !important;
+  font-weight: 600 !important;
+  padding: 22px 24px 0 !important;
+  border-bottom: none !important;
+}
+.t-dialog__header .t-dialog__header-content {
+  font-size: 1rem !important;
+  color: var(--text-primary);
+}
+.t-dialog__body {
+  padding: 20px 24px !important;
+  background: transparent !important;
+  font-size: 0.8125rem !important;
+  color: var(--text-secondary);
+}
+.t-dialog__footer {
+  padding: 0 24px 22px !important;
+  border-top: none !important;
+}
+.t-dialog__close {
+  color: var(--text-muted) !important;
+  border-radius: 8px !important;
+}
+.t-dialog__close:hover {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+}
+
+/* ===== Dropdown / Select Popup ===== */
+.t-popup__content {
+  border-radius: 12px !important;
+  border: 1px solid var(--border-default) !important;
+  background: var(--bg-elevated) !important;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35) !important;
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+}
+.t-select-option {
+  font-size: 0.8125rem !important;
+  padding: 8px 12px !important;
+  border-radius: 6px !important;
+  margin: 2px 6px !important;
 }

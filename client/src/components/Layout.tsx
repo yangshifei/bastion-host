@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Layout as TLayout, Button, Dropdown } from 'tdesign-react';
+import { Layout as TLayout, Button } from 'tdesign-react';
+import { NotificationCenter } from './NotificationCenter';
 import {
   DashboardIcon,
   ServerIcon,
@@ -16,6 +17,7 @@ import {
   SecuredIcon,
   VideoIcon,
   PoweroffIcon,
+  SettingIcon,
 } from 'tdesign-icons-react';
 import { useAuth } from '../hooks/useAuth';
 import { useAppStore } from '../stores/appStore';
@@ -40,6 +42,37 @@ export const Layout: React.FC = () => {
   const roleLabel =
     user?.role === 'admin' ? '管理员' : user?.role === 'auditor' ? '审计员' : '操作员';
 
+  const roleGradient: Record<string, string> = {
+    admin: 'from-rose-500/20 to-rose-500/5 border-rose-500/20',
+    auditor: 'from-amber-500/20 to-amber-500/5 border-amber-500/20',
+    operator: 'from-cyan-500/20 to-cyan-500/5 border-cyan-500/20',
+  };
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      closeMenu();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeMenu(); };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen, closeMenu]);
+
+  const initials = (user?.username || '?').slice(0, 2).toUpperCase();
+
   const navSections = useMemo(() => {
     const sections = [
       {
@@ -62,6 +95,7 @@ export const Layout: React.FC = () => {
           { path: '/assets', icon: <ServerIcon />, label: '资产管理' },
           { path: '/users', icon: <UserIcon />, label: '用户管理' },
           { path: '/authorizations', icon: <LinkIcon />, label: '授权管理' },
+          { path: '/security', icon: <SecuredIcon />, label: '安全策略' },
         ],
       });
     }
@@ -149,6 +183,7 @@ export const Layout: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1">
+            <NotificationCenter />
             <Button
               variant="text"
               shape="square"
@@ -159,23 +194,81 @@ export const Layout: React.FC = () => {
               {theme === 'dark' ? '☀️' : '🌙'}
             </Button>
 
-            <Dropdown
-              options={[
-                { content: '个人设置', value: 'profile', prefixIcon: <UserCircleIcon /> },
-                { content: '退出登录', value: 'logout', prefixIcon: <LogoutIcon /> },
-              ]}
-              onClick={(data) => {
-              if (data.value === 'logout') handleLogout();
-              if (data.value === 'profile') navigate('/profile');
-            }}
-          >
-            <div className="flex items-center gap-2 cursor-pointer hover:bg-white/[0.04] rounded-lg px-2.5 py-1.5 transition-colors">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500/20 to-cyan-500/10 text-[11px] font-semibold text-cyan-400 border border-cyan-500/15">
-                {user?.username?.[0]?.toUpperCase() || '?'}
-              </span>
-              <span className="text-xs text-slate-300">{user?.username}</span>
+            {/* ── User Menu ── */}
+            <div className="relative">
+              <div
+                ref={triggerRef}
+                className={`flex items-center gap-2 cursor-pointer rounded-lg px-2.5 py-1.5 transition-all duration-200 ${
+                  menuOpen ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]'
+                }`}
+                onClick={() => setMenuOpen((v) => !v)}
+              >
+                <span className={`flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br ${roleGradient[user?.role || 'operator']} text-[11px] font-semibold text-[var(--accent)] border`}>
+                  {user?.username?.[0]?.toUpperCase() || '?'}
+                </span>
+                <span className="text-xs text-[var(--text-secondary)] hidden sm:inline">{user?.username}</span>
+              </div>
+
+              {menuOpen && (
+                <div
+                  ref={menuRef}
+                  className="absolute right-0 top-full mt-1.5 w-56 rounded-xl border shadow-[0_16px_48px_rgba(0,0,0,0.35)] backdrop-blur-xl z-50 overflow-hidden animate-slide-up"
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    borderColor: 'var(--border-default)',
+                  }}
+                >
+                  {/* User info */}
+                  <div className="px-4 py-3.5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <div className="flex items-center gap-3">
+                      <span className={`flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br ${roleGradient[user?.role || 'operator']} text-sm font-semibold text-[var(--accent)] border shrink-0`}>
+                        {initials}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{user?.username}</p>
+                        <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>{roleLabel}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Menu items */}
+                  <div className="py-1.5">
+                    <button
+                      type="button"
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left"
+                      style={{ color: 'var(--text-secondary)' }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-surface)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                      onClick={() => { navigate('/profile'); closeMenu(); }}
+                    >
+                      <span className="flex items-center justify-center w-7 h-7 rounded-lg" style={{ background: 'var(--bg-surface)' }}>
+                        <SettingIcon size="15px" style={{ color: 'var(--text-muted)' }} />
+                      </span>
+                      个人设置
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left"
+                      style={{ color: 'var(--text-secondary)' }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)';
+                        e.currentTarget.style.color = '#f87171';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.color = 'var(--text-secondary)';
+                      }}
+                      onClick={() => { handleLogout(); closeMenu(); }}
+                    >
+                      <span className="flex items-center justify-center w-7 h-7 rounded-lg" style={{ background: 'rgba(239, 68, 68, 0.10)' }}>
+                        <LogoutIcon size="15px" style={{ color: '#f87171' }} />
+                      </span>
+                      退出登录
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          </Dropdown>
           </div>
         </Header>
 

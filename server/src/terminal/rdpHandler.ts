@@ -57,9 +57,9 @@ async function finalizeSession(
   durationSec: number,
   recordingEnabled: boolean,
   recordingFilePath: string | null,
-  recorder: RdpRecorder | null
+  recorder: RdpRecorder
 ): Promise<void> {
-  recorder?.close();
+  recorder.close();
 
   let recordingPath: string | null = null;
   if (recordingEnabled && recordingFilePath) {
@@ -112,7 +112,11 @@ export async function handleRDPConnection(
   let logged = false;
   let recordingEnabled = false;
   let recordingFilePath: string | null = null;
-  let recorder: RdpRecorder | null = null;
+  // Create recorder + hook WebSocket immediately so the initial Guacamole
+  // handshake (including the "size" display instruction) is captured.
+  // If the asset has recording disabled, we discard it in setup().
+  const recorder = new RdpRecorder(sessionId);
+  RdpRecorder.hookWebSocket(ws, recorder);
 
   const url = new URL(request.url || '', `http://${request.headers.host}`);
   let token = url.searchParams.get('token');
@@ -170,8 +174,9 @@ export async function handleRDPConnection(
       recordingEnabled = asset.recording_enabled !== 0 && asset.recording_enabled !== false;
 
       if (recordingEnabled) {
-        recorder = new RdpRecorder(sessionId!);
         recordingFilePath = recorder.getPath();
+      } else {
+        recorder.discard();
       }
 
       const [result] = await pool.query<any>(
@@ -221,10 +226,6 @@ export async function handleRDPConnection(
         }
       );
 
-      if (recordingEnabled && recorder) {
-        RdpRecorder.hookConnectionSend(connection, recorder);
-      }
-
       connection.connect({ host: config.guacd.host, port: config.guacd.port });
 
       const managed = sessionManager.get(sessionId!);
@@ -255,8 +256,7 @@ export async function handleRDPConnection(
       logger.info({ sessionId, userId, recordingEnabled, protocol: 'rdp' }, 'RDP session created');
     } catch (err: any) {
       logger.error({ err: err.message }, 'RDP setup failed');
-      recorder?.discard();
-      recorder = null;
+      recorder.discard();
       ws.close(4000, '连接失败');
     }
   }
@@ -284,8 +284,7 @@ export async function handleRDPConnection(
         logger.error({ err, dbSessionId }, 'RDP session finalize failed');
       });
     } else {
-      recorder?.discard();
-      recorder = null;
+      recorder.discard();
     }
 
     if (sessionId) sessionManager.remove(sessionId);

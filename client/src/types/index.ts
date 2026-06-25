@@ -31,6 +31,7 @@ export interface SafeUser {
   email: string | null;
   phone: string | null;
   mfa_enabled: boolean;
+  must_change_password?: boolean;
   status: UserStatus;
   last_login: string | null;
   created_at: string;
@@ -148,6 +149,7 @@ export interface LoginResponse {
   token?: string;
   user?: SafeUser;
   requireMfa?: boolean;
+  require_password_change?: boolean;
   mfaToken?: string;
 }
 

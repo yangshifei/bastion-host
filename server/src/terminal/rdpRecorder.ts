@@ -1,10 +1,10 @@
 import fs from 'fs';
 import path from 'path';
-import { RawData } from 'ws';
+import { WebSocket, RawData } from 'ws';
 import logger from '../utils/logger';
 
 /**
- * Record Guacamole display stream (server→client) via ClientConnection.send.
+ * Record Guacamole display stream (server→client) by tapping ws.send.
  * Compatible with Guacamole.SessionRecording playback.
  */
 export class RdpRecorder {
@@ -22,12 +22,24 @@ export class RdpRecorder {
     logger.info({ filePath: this.filePath }, 'RDP recording started');
   }
 
-  /** Hook ClientConnection.send so only Guacamole display data is recorded. */
-  static hookConnectionSend(connection: { send: (message: string) => void }, recorder: RdpRecorder): void {
-    const originalSend = connection.send.bind(connection);
-    connection.send = (message: string) => {
-      recorder.write(message);
-      originalSend(message);
+  /** Hook ws.send (guacd → browser display stream) immediately so no data is lost. */
+  static hookWebSocket(ws: WebSocket, recorder: RdpRecorder): void {
+    const originalSend = ws.send.bind(ws);
+    ws.send = function sendWithRecord(
+      data: any,
+      optionsOrCb?: any,
+      cb?: any,
+    ): void {
+      recorder.write(data);
+      if (typeof optionsOrCb === 'function') {
+        originalSend(data, optionsOrCb);
+      } else if (cb !== undefined) {
+        originalSend(data, optionsOrCb, cb);
+      } else if (optionsOrCb !== undefined) {
+        originalSend(data, optionsOrCb);
+      } else {
+        originalSend(data);
+      }
     };
   }
 

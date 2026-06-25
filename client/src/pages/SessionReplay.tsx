@@ -6,6 +6,7 @@ import { sessionService } from '../services/sessionService';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
+import { usePagination } from '../hooks/usePagination';
 import { SshReplayTerminal, type ReplayFrame } from '../components/SshReplayTerminal';
 import { RdpReplayPlayer } from '../components/RdpReplayPlayer';
 import type { Session } from '../types';
@@ -49,6 +50,7 @@ export const SessionReplay: React.FC = () => {
   const [seekTo, setSeekTo] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [listLoading, setListLoading] = useState(true);
+  const pag = usePagination({ defaultPageSize: 20 });
   const loadedSessionIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -66,8 +68,15 @@ export const SessionReplay: React.FC = () => {
     const fetchSessions = async () => {
       setListLoading(true);
       try {
-        const res = await sessionService.getList({ hasRecording: true, pageSize: 50 });
-        if (res.code === 0 && res.data) setSessions(res.data.list);
+        const res = await sessionService.getList({
+          hasRecording: true,
+          page: pag.page,
+          pageSize: pag.pageSize,
+        });
+        if (res.code === 0 && res.data) {
+          setSessions(res.data.list);
+          pag.updateTotal(res.data.pagination.total);
+        }
       } catch {
         /* ignore */
       } finally {
@@ -75,7 +84,7 @@ export const SessionReplay: React.FC = () => {
       }
     };
     fetchSessions();
-  }, []);
+  }, [pag.page, pag.pageSize]);
 
   const loadRecording = useCallback(async (session: Session) => {
     if (loadedSessionIdRef.current === session.id) return;
@@ -442,6 +451,7 @@ export const SessionReplay: React.FC = () => {
             rowKey="id"
             hover
             stripe
+            pagination={pag.paginationProps}
             empty={
               <EmptyState
                 icon={<VideoIcon size="24px" className="text-slate-500" />}

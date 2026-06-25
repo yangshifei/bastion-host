@@ -14,6 +14,8 @@ import { TerminalShell } from './pages/TerminalShell';
 import { SessionReplay } from './pages/SessionReplay';
 import { ActiveSessions } from './pages/ActiveSessions';
 import { Profile } from './pages/Profile';
+import { ForcePasswordChange } from './pages/ForcePasswordChange';
+import { SecuritySettings } from './pages/SecuritySettings';
 import { NotFound } from './pages/NotFound';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -70,6 +72,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/force-change-password" element={<ProtectedRoute><ForcePasswordChange /></ProtectedRoute>} />
 
           <Route
             path="/"
@@ -93,6 +96,7 @@ function App() {
             <Route path="users" element={<AdminRoute><Users /></AdminRoute>} />
             <Route path="authorizations" element={<AdminRoute><Authorizations /></AdminRoute>} />
             <Route path="sessions" element={<AdminRoute><ActiveSessions /></AdminRoute>} />
+            <Route path="security" element={<AdminRoute><SecuritySettings /></AdminRoute>} />
 
             <Route path="audit" element={<ComplianceRoute><AuditLog /></ComplianceRoute>} />
           </Route>
