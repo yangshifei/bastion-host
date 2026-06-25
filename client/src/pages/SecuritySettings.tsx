@@ -25,25 +25,26 @@ export const SecuritySettings: React.FC = () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const [pres, wres] = await Promise.all([
-        securityService.getPasswordPolicy(),
-        securityService.getIpWhitelist(),
-      ]);
+      const pres = await securityService.getPasswordPolicy();
       if (pres.code === 0 && pres.data) {
         setPolicy(pres.data);
       } else {
-        console.error('getPasswordPolicy failed:', pres);
+        console.error('getPasswordPolicy failed:', JSON.stringify(pres));
         setLoadError(pres.message || `获取密码策略失败 (code: ${pres.code})`);
       }
+    } catch (err: any) {
+      console.error('getPasswordPolicy error:', err);
+      setLoadError(err?.response?.data?.message || err?.message || `请求失败 (HTTP ${err?.response?.status || '?'})`);
+    }
+
+    try {
+      const wres = await securityService.getIpWhitelist();
       if (wres.code === 0 && wres.data) {
         setWhitelist(wres.data);
       }
-    } catch (err: any) {
-      console.error('loadData error:', err);
-      setLoadError(err?.response?.data?.message || err?.message || `请求失败 (HTTP ${err?.response?.status || '?'})`);
-    } finally {
-      setLoading(false);
-    }
+    } catch { /* whitelist is optional */ }
+
+    setLoading(false);
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
