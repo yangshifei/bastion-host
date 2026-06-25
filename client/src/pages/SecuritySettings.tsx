@@ -1,32 +1,130 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { Switch, Button, Input, Popconfirm, MessagePlugin } from 'tdesign-react';
-import { AddIcon, DeleteIcon } from 'tdesign-icons-react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { Button, Input, Popconfirm, MessagePlugin, Table, Tag } from 'tdesign-react';
+import {
+  AddIcon,
+  DeleteIcon,
+  RefreshIcon,
+  SecuredIcon,
+  LockOnIcon,
+  InternetIcon,
+  TimeIcon,
+} from 'tdesign-icons-react';
 import { securityService, PasswordPolicy, IpWhitelistEntry } from '../services/securityService';
 import { PageHeader } from '../components/PageHeader';
+import { StatCard } from '../components/StatCard';
+import { LoadingSkeleton } from '../components/LoadingSkeleton';
+import { EmptyState } from '../components/EmptyState';
+import { RecordingSwitch } from '../components/RecordingSwitch';
 
 const DEFAULT_POLICY: PasswordPolicy = {
-  min_length: 8, require_upper: true, require_lower: true, require_digit: true,
-  require_special: false, expire_days: 90, history_count: 5,
-  force_change_on_create: true, captcha_threshold: 3,
-  lockout_threshold: 10, lockout_minutes: 15,
+  min_length: 8,
+  require_upper: true,
+  require_lower: true,
+  require_digit: true,
+  require_special: false,
+  expire_days: 90,
+  history_count: 5,
+  force_change_on_create: true,
+  captcha_threshold: 3,
+  lockout_threshold: 10,
+  lockout_minutes: 15,
 };
 
-// ── Reusable setting row ──
+const CIDR_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
+
+function buildPolicySummary(policy: PasswordPolicy): string[] {
+  const parts = [`至少 ${policy.min_length} 位`];
+  if (policy.require_upper) parts.push('大写字母');
+  if (policy.require_lower) parts.push('小写字母');
+  if (policy.require_digit) parts.push('数字');
+  if (policy.require_special) parts.push('特殊字符');
+  return parts;
+}
+
+function policyStrengthScore(policy: PasswordPolicy): number {
+  let score = 0;
+  if (policy.min_length >= 12) score += 25;
+  else if (policy.min_length >= 10) score += 15;
+  else score += 8;
+  if (policy.require_upper) score += 15;
+  if (policy.require_lower) score += 15;
+  if (policy.require_digit) score += 15;
+  if (policy.require_special) score += 20;
+  if (policy.expire_days > 0 && policy.expire_days <= 90) score += 10;
+  if (policy.history_count >= 3) score += 10;
+  return Math.min(score, 100);
+}
+
+function strengthLabel(score: number): { text: string; accent: 'green' | 'amber' | 'red' | 'cyan' } {
+  if (score >= 80) return { text: '强', accent: 'green' };
+  if (score >= 55) return { text: '中', accent: 'amber' };
+  return { text: '弱', accent: 'red' };
+}
+
 const SettingRow: React.FC<{
-  label: string; desc?: string; children: React.ReactNode;
+  label: string;
+  desc?: string;
+  children: React.ReactNode;
 }> = ({ label, desc, children }) => (
-  <div className="flex items-center justify-between py-3.5 px-5 border-b border-[var(--border-subtle)] last:border-b-0 gap-4">
-    <div className="min-w-0 text-sm">
-      <span className="font-medium text-[var(--text-primary)]">{label}</span>
-      {desc && <span className="text-[var(--text-muted)] ml-2">{desc}</span>}
+  <div className="security-setting-row">
+    <div className="min-w-0 flex-1">
+      <div className="text-sm font-medium text-[var(--text-primary)]">{label}</div>
+      {desc && <div className="text-xs text-[var(--text-muted)] mt-0.5 leading-relaxed">{desc}</div>}
     </div>
     <div className="shrink-0">{children}</div>
   </div>
 );
 
-const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="px-5 py-3 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider bg-[var(--bg-page)] border-b border-[var(--border-subtle)]">
-    {children}
+const NumberInput: React.FC<{
+  value: number;
+  min: number;
+  max: number;
+  width?: number;
+  onCommit: (value: number) => void;
+}> = ({ value, min, max, width = 80, onCommit }) => {
+  const [draft, setDraft] = React.useState(String(value));
+
+  React.useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const commit = () => {
+    const n = parseInt(draft, 10);
+    if (Number.isNaN(n) || n < min || n > max) {
+      setDraft(String(value));
+      MessagePlugin.warning(`请输入 ${min}–${max} 之间的数值`);
+      return;
+    }
+    if (n !== value) {
+      onCommit(n);
+    }
+  };
+
+  return (
+    <Input
+      type="number"
+      value={draft}
+      onChange={(v) => setDraft(v)}
+      onBlur={commit}
+      onEnter={commit}
+      style={{ width }}
+    />
+  );
+};
+
+const PanelHeader: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  desc?: string;
+}> = ({ icon, title, desc }) => (
+  <div className="section-header">
+    <div className="flex items-center gap-3 min-w-0">
+      <div className="quick-action-icon !w-9 !h-9">{icon}</div>
+      <div className="min-w-0">
+        <div className="section-title">{title}</div>
+        {desc && <div className="section-desc">{desc}</div>}
+      </div>
+    </div>
   </div>
 );
 
@@ -34,156 +132,419 @@ export const SecuritySettings: React.FC = () => {
   const [policy, setPolicy] = useState<PasswordPolicy>(DEFAULT_POLICY);
   const [whitelist, setWhitelist] = useState<IpWhitelistEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const [wlForm, setWlForm] = useState({ network: '', mask: '24', description: '' });
+  const [addingWl, setAddingWl] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    else setRefreshing(true);
     try {
       const p = await securityService.getPasswordPolicy();
       if (p.code === 0 && p.data) setPolicy(p.data);
-    } catch { /* defaults */ }
+    } catch {
+      /* defaults */
+    }
     try {
       const w = await securityService.getIpWhitelist();
       if (w.code === 0 && w.data) setWhitelist(w.data);
-    } catch { /* optional */ }
-    setLoading(false);
+    } catch {
+      /* optional */
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const update = async (k: keyof PasswordPolicy, v: any) => {
-    setPolicy(p => ({ ...p, [k]: v }));
-    try { await securityService.updatePasswordPolicy({ [k]: v }); }
-    catch { MessagePlugin.error('保存失败'); load(); }
+  const update = async (k: keyof PasswordPolicy, v: boolean | number) => {
+    if (policy[k] === v) return;
+    setPolicy((p) => ({ ...p, [k]: v }));
+    setSavingKey(String(k));
+    try {
+      const res = await securityService.updatePasswordPolicy({ [k]: v });
+      if (res.code === 0) {
+        MessagePlugin.success('已保存');
+      } else {
+        throw new Error(res.message);
+      }
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        (err instanceof Error ? err.message : '保存失败');
+      MessagePlugin.error(msg);
+      load(true);
+    } finally {
+      setSavingKey(null);
+    }
   };
 
   const addWl = async () => {
-    if (!wlForm.network) { MessagePlugin.warning('请输入网络地址'); return; }
-    const r = await securityService.addIpWhitelist({ network: wlForm.network, mask: parseInt(wlForm.mask) || 24, description: wlForm.description || undefined });
-    if (r.code === 0) { MessagePlugin.success('已添加'); setWlForm({ network: '', mask: '24', description: '' }); load(); }
-    else MessagePlugin.error(r.message || '添加失败');
+    const network = wlForm.network.trim();
+    const mask = parseInt(wlForm.mask, 10);
+    if (!network) {
+      MessagePlugin.warning('请输入网络地址');
+      return;
+    }
+    if (!CIDR_RE.test(network)) {
+      MessagePlugin.warning('网络地址格式不正确，如 10.0.0.0');
+      return;
+    }
+    if (Number.isNaN(mask) || mask < 0 || mask > 32) {
+      MessagePlugin.warning('CIDR 掩码应为 0–32');
+      return;
+    }
+
+    setAddingWl(true);
+    try {
+      const r = await securityService.addIpWhitelist({
+        network,
+        mask,
+        description: wlForm.description.trim() || undefined,
+      });
+      if (r.code === 0) {
+        MessagePlugin.success('已添加');
+        setWlForm({ network: '', mask: '24', description: '' });
+        load(true);
+      } else {
+        MessagePlugin.error(r.message || '添加失败');
+      }
+    } catch {
+      MessagePlugin.error('添加失败');
+    } finally {
+      setAddingWl(false);
+    }
   };
 
-  const delWl = async (id: number) => { await securityService.deleteIpWhitelist(id); load(); };
-  const toggleWl = async (id: number, en: boolean) => { await securityService.updateIpWhitelist(id, { enabled: !en }); load(); };
+  const delWl = async (id: number) => {
+    try {
+      await securityService.deleteIpWhitelist(id);
+      MessagePlugin.success('已删除');
+      load(true);
+    } catch {
+      MessagePlugin.error('删除失败');
+    }
+  };
+
+  const toggleWl = async (id: number, en: boolean) => {
+    try {
+      const r = await securityService.updateIpWhitelist(id, { enabled: !en });
+      if (r.code === 0) {
+        MessagePlugin.success(en ? '已禁用' : '已启用');
+        load(true);
+      }
+    } catch {
+      MessagePlugin.error('操作失败');
+    }
+  };
+
+  const policySummary = useMemo(() => buildPolicySummary(policy), [policy]);
+  const strength = useMemo(() => policyStrengthScore(policy), [policy]);
+  const strengthInfo = strengthLabel(strength);
+  const enabledWlCount = whitelist.filter((e) => e.enabled).length;
+
+  const wlColumns = [
+    {
+      colKey: 'network',
+      title: '网段',
+      width: 160,
+      cell: ({ row }: { row: IpWhitelistEntry }) => (
+        <code className="mono text-sm text-cyan-400">
+          {row.network}/{row.mask}
+        </code>
+      ),
+    },
+    {
+      colKey: 'description',
+      title: '备注',
+      ellipsis: true,
+      cell: ({ row }: { row: IpWhitelistEntry }) => (
+        <span className="text-[var(--text-secondary)]">{row.description || '—'}</span>
+      ),
+    },
+    {
+      colKey: 'enabled',
+      title: '状态',
+      width: 90,
+      cell: ({ row }: { row: IpWhitelistEntry }) => (
+        <Tag theme={row.enabled ? 'success' : 'default'} variant="light" size="small">
+          {row.enabled ? '启用' : '禁用'}
+        </Tag>
+      ),
+    },
+    {
+      colKey: 'actions',
+      title: '操作',
+      width: 120,
+      cell: ({ row }: { row: IpWhitelistEntry }) => (
+        <div className="flex items-center gap-1">
+          <Button variant="text" size="small" onClick={() => toggleWl(row.id, row.enabled)}>
+            {row.enabled ? '禁用' : '启用'}
+          </Button>
+          <Popconfirm content="确认删除此规则？" onConfirm={() => delWl(row.id)}>
+            <Button variant="text" size="small" theme="danger" icon={<DeleteIcon />} />
+          </Popconfirm>
+        </div>
+      ),
+    },
+  ];
 
   if (loading) {
     return (
-      <div>
+      <div className="page-content">
         <PageHeader title="安全策略" description="密码规则、登录保护与 IP 访问控制" />
-        <div className="content-card flex items-center justify-center h-32">
-          <p className="text-sm text-slate-500">加载中...</p>
-        </div>
+        <LoadingSkeleton />
       </div>
     );
   }
 
   return (
-    <div>
-      <PageHeader title="安全策略" description="密码规则、登录保护与 IP 访问控制" />
+    <div className="page-content">
+      <PageHeader title="安全策略" description="密码规则、登录保护与 IP 访问控制">
+        <Button
+          variant="outline"
+          icon={<RefreshIcon className={refreshing ? 'animate-spin' : ''} />}
+          loading={refreshing}
+          onClick={() => load(true)}
+        >
+          刷新
+        </Button>
+      </PageHeader>
 
-      <div className="content-card overflow-hidden">
-        {/* ═══════ 密码复杂度 ═══════ */}
-        <SectionTitle>密码复杂度</SectionTitle>
-        <SettingRow label="密码最小长度" desc="8–64 位，默认 8 位">
-          <Input type="number" value={String(policy.min_length)} onChange={v => { const n = parseInt(v); if (n >= 8 && n <= 64) update('min_length', n); }}
-            style={{ width: 100 }} />
-        </SettingRow>
-        <SettingRow label="必须包含大写字母" desc="密码中至少包含一个大写英文字母 (A-Z)">
-          <Switch size="small" value={policy.require_upper} onChange={v => update('require_upper', v)} />
-        </SettingRow>
-        <SettingRow label="必须包含小写字母" desc="密码中至少包含一个小写英文字母 (a-z)">
-          <Switch size="small" value={policy.require_lower} onChange={v => update('require_lower', v)} />
-        </SettingRow>
-        <SettingRow label="必须包含数字" desc="密码中至少包含一个阿拉伯数字 (0-9)">
-          <Switch size="small" value={policy.require_digit} onChange={v => update('require_digit', v)} />
-        </SettingRow>
-        <SettingRow label="必须包含特殊字符" desc="密码中至少包含一个特殊字符 (!@#$%^&* 等)">
-          <Switch size="small" value={policy.require_special} onChange={v => update('require_special', v)} />
-        </SettingRow>
+      {/* Overview stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+        <StatCard
+          title="密码强度"
+          value={strengthInfo.text}
+          subtitle={`策略评分 ${strength}/100 · ${policySummary.join('、')}`}
+          icon={<SecuredIcon size="20px" />}
+          accent={strengthInfo.accent}
+        />
+        <StatCard
+          title="登录保护"
+          value={`${policy.captcha_threshold} / ${policy.lockout_threshold}`}
+          subtitle={`验证码 ${policy.captcha_threshold} 次 · 锁定 ${policy.lockout_threshold} 次 / ${policy.lockout_minutes} 分钟`}
+          icon={<LockOnIcon size="20px" />}
+          accent="amber"
+        />
+        <StatCard
+          title="IP 白名单"
+          value={whitelist.length === 0 ? '未限制' : `${enabledWlCount}/${whitelist.length}`}
+          subtitle={
+            whitelist.length === 0
+              ? '当前所有 IP 均可登录'
+              : `${enabledWlCount} 条规则生效中`
+          }
+          icon={<InternetIcon size="20px" />}
+          accent={whitelist.length === 0 ? 'blue' : 'green'}
+        />
+      </div>
 
-        {/* ═══════ 密码生命周期 ═══════ */}
-        <SectionTitle>密码生命周期</SectionTitle>
-        <SettingRow label="密码过期时间" desc="超过此天数后强制修改密码，0 表示永不过期">
-          <div className="flex items-center gap-2">
-            <Input type="number" value={String(policy.expire_days)} onChange={v => { const n = parseInt(v); if (n >= 0 && n <= 365) update('expire_days', n); }}
-              style={{ width: 80 }} />
-            <span className="text-xs text-slate-500">天</span>
-          </div>
-        </SettingRow>
-        <SettingRow label="密码历史记录" desc="不能使用最近 N 次使用过的密码，0 表示不限制">
-          <div className="flex items-center gap-2">
-            <Input type="number" value={String(policy.history_count)} onChange={v => { const n = parseInt(v); if (n >= 0 && n <= 20) update('history_count', n); }}
-              style={{ width: 80 }} />
-            <span className="text-xs text-slate-500">次</span>
-          </div>
-        </SettingRow>
-        <SettingRow label="首次登录修改密码" desc="管理员创建新用户后，用户首次登录时必须修改初始密码">
-          <Switch size="small" value={policy.force_change_on_create} onChange={v => update('force_change_on_create', v)} />
-        </SettingRow>
-
-        {/* ═══════ 登录保护 ═══════ */}
-        <SectionTitle>登录保护</SectionTitle>
-        <SettingRow label="验证码触发阈值" desc="连续登录失败达到此次数后，需要输入验证码才能继续尝试">
-          <div className="flex items-center gap-2">
-            <Input type="number" value={String(policy.captcha_threshold)} onChange={v => { const n = parseInt(v); if (n >= 1 && n <= 10) update('captcha_threshold', n); }}
-              style={{ width: 80 }} />
-            <span className="text-xs text-slate-500">次</span>
-          </div>
-        </SettingRow>
-        <SettingRow label="账号锁定阈值" desc="累计登录失败达到此次数后，账号将被临时锁定">
-          <div className="flex items-center gap-2">
-            <Input type="number" value={String(policy.lockout_threshold)} onChange={v => { const n = parseInt(v); if (n >= 5 && n <= 20) update('lockout_threshold', n); }}
-              style={{ width: 80 }} />
-            <span className="text-xs text-slate-500">次</span>
-          </div>
-        </SettingRow>
-        <SettingRow label="账号锁定时长" desc="账号被锁定后，需要等待的时间">
-          <div className="flex items-center gap-2">
-            <Input type="number" value={String(policy.lockout_minutes)} onChange={v => { const n = parseInt(v); if (n >= 5) update('lockout_minutes', n); }}
-              style={{ width: 80 }} />
-            <span className="text-xs text-slate-500">分钟</span>
-          </div>
-        </SettingRow>
-
-        {/* ═══════ IP 访问控制 ═══════ */}
-        <SectionTitle>IP 访问控制</SectionTitle>
-        <div className="px-5 py-4 border-b border-[var(--border-subtle)]">
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <div className="text-xs text-[var(--text-muted)] mb-1.5">网络地址</div>
-              <Input value={wlForm.network} onChange={v => setWlForm(p => ({ ...p, network: v }))} placeholder="如 10.0.0.0" style={{ width: 140 }} />
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        {/* Password complexity */}
+        <div className="content-card overflow-hidden">
+          <PanelHeader
+            icon={<SecuredIcon size="18px" />}
+            title="密码复杂度"
+            desc="控制用户密码的组成要求"
+          />
+          <div className="security-policy-preview">
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {policySummary.map((item) => (
+                <Tag key={item} theme="primary" variant="light" size="small">
+                  {item}
+                </Tag>
+              ))}
             </div>
-            <div>
-              <div className="text-xs text-[var(--text-muted)] mb-1.5">CIDR 掩码</div>
-              <Input value={wlForm.mask} onChange={v => setWlForm(p => ({ ...p, mask: v }))} placeholder="24" style={{ width: 80 }} />
+            <div className="security-strength-bar">
+              <div className="security-strength-fill" style={{ width: `${strength}%` }} />
             </div>
-            <div>
-              <div className="text-xs text-[var(--text-muted)] mb-1.5">备注</div>
-              <Input value={wlForm.description} onChange={v => setWlForm(p => ({ ...p, description: v }))} placeholder="可选" style={{ width: 140 }} />
+            <div className="text-[10px] text-[var(--text-muted)] mt-1.5">
+              策略强度 {strength}/100
+              {savingKey && <span className="ml-2 text-cyan-400">保存中...</span>}
             </div>
-            <Button theme="primary" icon={<AddIcon />} onClick={addWl} style={{ marginBottom: 0 }}>添加</Button>
+          </div>
+          <SettingRow label="密码最小长度" desc="8–64 位，建议 12 位以上">
+            <NumberInput
+              value={policy.min_length}
+              min={8}
+              max={64}
+              width={96}
+              onCommit={(n) => update('min_length', n)}
+            />
+          </SettingRow>
+          <SettingRow label="必须包含大写字母" desc="至少一个大写英文字母 (A-Z)">
+            <RecordingSwitch
+              size="small"
+              value={policy.require_upper}
+              onChange={(v) => update('require_upper', v)}
+            />
+          </SettingRow>
+          <SettingRow label="必须包含小写字母" desc="至少一个小写英文字母 (a-z)">
+            <RecordingSwitch
+              size="small"
+              value={policy.require_lower}
+              onChange={(v) => update('require_lower', v)}
+            />
+          </SettingRow>
+          <SettingRow label="必须包含数字" desc="至少一个阿拉伯数字 (0-9)">
+            <RecordingSwitch
+              size="small"
+              value={policy.require_digit}
+              onChange={(v) => update('require_digit', v)}
+            />
+          </SettingRow>
+          <SettingRow label="必须包含特殊字符" desc="如 !@#$%^&* 等符号">
+            <RecordingSwitch
+              size="small"
+              value={policy.require_special}
+              onChange={(v) => update('require_special', v)}
+            />
+          </SettingRow>
+        </div>
+
+        {/* Password lifecycle + login protection */}
+        <div className="flex flex-col gap-5">
+          <div className="content-card overflow-hidden">
+            <PanelHeader
+              icon={<TimeIcon size="18px" />}
+              title="密码生命周期"
+              desc="过期与历史密码限制"
+            />
+            <SettingRow label="密码过期时间" desc="0 表示永不过期">
+              <div className="flex items-center gap-2">
+                <NumberInput
+                  value={policy.expire_days}
+                  min={0}
+                  max={365}
+                  onCommit={(n) => update('expire_days', n)}
+                />
+                <span className="text-xs text-[var(--text-muted)]">天</span>
+              </div>
+            </SettingRow>
+            <SettingRow label="密码历史记录" desc="不可重复使用最近 N 次密码，0 为不限制">
+              <div className="flex items-center gap-2">
+                <NumberInput
+                  value={policy.history_count}
+                  min={0}
+                  max={20}
+                  onCommit={(n) => update('history_count', n)}
+                />
+                <span className="text-xs text-[var(--text-muted)]">次</span>
+              </div>
+            </SettingRow>
+            <SettingRow label="首次登录修改密码" desc="新用户首次登录必须修改初始密码">
+              <RecordingSwitch
+                size="small"
+                value={policy.force_change_on_create}
+                onChange={(v) => update('force_change_on_create', v)}
+              />
+            </SettingRow>
+          </div>
+
+          <div className="content-card overflow-hidden">
+            <PanelHeader
+              icon={<LockOnIcon size="18px" />}
+              title="登录保护"
+              desc="防暴力破解与账号锁定"
+            />
+            <SettingRow label="验证码触发阈值" desc="连续失败后需输入验证码（1–10 次）">
+              <div className="flex items-center gap-2">
+                <NumberInput
+                  value={policy.captcha_threshold}
+                  min={1}
+                  max={10}
+                  onCommit={(n) => update('captcha_threshold', n)}
+                />
+                <span className="text-xs text-[var(--text-muted)]">次</span>
+              </div>
+            </SettingRow>
+            <SettingRow label="账号锁定阈值" desc="累计失败达到此次数后锁定账号">
+              <div className="flex items-center gap-2">
+                <NumberInput
+                  value={policy.lockout_threshold}
+                  min={5}
+                  max={20}
+                  onCommit={(n) => update('lockout_threshold', n)}
+                />
+                <span className="text-xs text-[var(--text-muted)]">次</span>
+              </div>
+            </SettingRow>
+            <SettingRow label="账号锁定时长" desc="锁定后需等待的时间">
+              <div className="flex items-center gap-2">
+                <NumberInput
+                  value={policy.lockout_minutes}
+                  min={5}
+                  max={1440}
+                  onCommit={(n) => update('lockout_minutes', n)}
+                />
+                <span className="text-xs text-[var(--text-muted)]">分钟</span>
+              </div>
+            </SettingRow>
           </div>
         </div>
-        {whitelist.length > 0 && (
-          <div className="px-5 py-2">
-            {whitelist.map(e => (
-              <div key={e.id} className="flex items-center gap-4 py-2.5 border-b border-[var(--border-subtle)] last:border-b-0">
-                <code className="text-sm font-mono text-[var(--accent)] w-[130px] shrink-0">{e.network}/{e.mask}</code>
-                <span className="text-xs text-[var(--text-muted)] flex-1 truncate">{e.description || '—'}</span>
-                <span className={`text-xs w-10 ${e.enabled ? 'text-emerald-400' : 'text-slate-500'}`}>{e.enabled ? '启用' : '禁用'}</span>
-                <div className="flex items-center gap-1">
-                  <Button variant="text" size="small" onClick={() => toggleWl(e.id, e.enabled)}>{e.enabled ? '禁用' : '启用'}</Button>
-                  <Popconfirm content="确认删除？" onConfirm={() => delWl(e.id)}>
-                    <Button variant="text" size="small" theme="danger" icon={<DeleteIcon />} />
-                  </Popconfirm>
-                </div>
-              </div>
-            ))}
+      </div>
+
+      {/* IP whitelist */}
+      <div className="content-card overflow-hidden mt-5">
+        <PanelHeader
+          icon={<InternetIcon size="18px" />}
+          title="IP 访问控制"
+          desc="仅允许白名单网段登录，留空则不限制"
+        />
+        <div className="section-body border-b border-[var(--border-subtle)]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+            <div>
+              <div className="info-label mb-1.5">网络地址</div>
+              <Input
+                value={wlForm.network}
+                onChange={(v) => setWlForm((p) => ({ ...p, network: v }))}
+                placeholder="10.0.0.0"
+                onEnter={addWl}
+              />
+            </div>
+            <div>
+              <div className="info-label mb-1.5">CIDR 掩码</div>
+              <Input
+                value={wlForm.mask}
+                onChange={(v) => setWlForm((p) => ({ ...p, mask: v }))}
+                placeholder="24"
+                onEnter={addWl}
+              />
+            </div>
+            <div>
+              <div className="info-label mb-1.5">备注</div>
+              <Input
+                value={wlForm.description}
+                onChange={(v) => setWlForm((p) => ({ ...p, description: v }))}
+                placeholder="如：办公网段"
+                onEnter={addWl}
+              />
+            </div>
+            <Button theme="primary" icon={<AddIcon />} loading={addingWl} onClick={addWl}>
+              添加规则
+            </Button>
           </div>
-        )}
-        {whitelist.length === 0 && (
-          <div className="px-5 py-6 text-center text-xs text-slate-500">暂无 IP 白名单规则，所有 IP 均可登录</div>
+        </div>
+        {whitelist.length > 0 ? (
+          <Table
+            data={whitelist}
+            columns={wlColumns}
+            rowKey="id"
+            hover
+            stripe
+            size="small"
+          />
+        ) : (
+          <EmptyState
+            icon={<InternetIcon size="22px" className="text-slate-500" />}
+            title="暂无 IP 白名单"
+            description="未配置时所有 IP 均可登录。添加规则后将仅允许指定网段访问。"
+          />
         )}
       </div>
     </div>
