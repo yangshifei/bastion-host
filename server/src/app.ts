@@ -45,7 +45,7 @@ app.use('/api/authorizations', authorizationsRoutes);
 app.use('/api/sessions', sessionsRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/security', securityRoutes);
-app.use('/api', securityRoutes);  // notifications are under /api/notifications
+app.use('/api', securityRoutes);  // also mount at /api for /api/notifications etc.
 
 // ---- Dashboard stats ----
 app.get('/api/dashboard/stats', async (_req, res) => {

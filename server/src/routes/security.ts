@@ -42,6 +42,11 @@ const addIpSchema = z.object({
 
 // ═══════════════════ Password Policy ═══════════════════
 
+// GET /api/security/ping — verify routes are loaded
+router.get('/ping', (_req: Request, res: Response) => {
+  success(res, { loaded: true });
+});
+
 // GET /api/security/password-policy
 router.get('/password-policy', async (_req: Request, res: Response) => {
   try {
