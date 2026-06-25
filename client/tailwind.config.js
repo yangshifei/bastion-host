@@ -25,6 +25,18 @@ export default {
           500: '#06b6d4',
           600: '#0891b2',
         },
+        amber: {
+          400: 'rgb(var(--color-amber-400) / <alpha-value>)',
+          500: 'rgb(var(--color-amber-500) / <alpha-value>)',
+          600: 'rgb(var(--color-amber-600) / <alpha-value>)',
+        },
+        // Semantic status colors
+        status: {
+          error:   'var(--status-error)',
+          warning: 'var(--status-warning)',
+          success: 'var(--status-success)',
+          info:    'var(--status-info)',
+        },
         // Legacy bastion colors (backward compat for config references)
         bastion: {
           deep: 'rgb(var(--color-slate-950) / <alpha-value>)',
