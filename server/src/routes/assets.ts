@@ -61,6 +61,24 @@ router.get('/groups', async (req: Request, res: Response) => {
   }
 });
 
+// ---- GET /api/assets/stats ----
+router.get('/stats', async (req: Request, res: Response) => {
+  try {
+    const [rows] = await pool.query<any[]>(
+      `SELECT
+         COUNT(*) as total,
+         SUM(CASE WHEN protocol = 'ssh' THEN 1 ELSE 0 END) as ssh,
+         SUM(CASE WHEN protocol = 'rdp' THEN 1 ELSE 0 END) as rdp,
+         SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) as online,
+         SUM(CASE WHEN status = 'offline' THEN 1 ELSE 0 END) as offline
+       FROM assets WHERE deleted_at IS NULL`
+    );
+    success(res, rows[0]);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
 // ---- GET /api/assets ----
 router.get('/', async (req: Request, res: Response) => {
   try {

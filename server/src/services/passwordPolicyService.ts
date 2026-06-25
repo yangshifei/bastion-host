@@ -14,6 +14,7 @@ export interface PasswordPolicy {
   captcha_threshold: number;
   lockout_threshold: number;
   lockout_minutes: number;
+  require_mfa: boolean;
 }
 
 const DEFAULT_POLICY: PasswordPolicy = {
@@ -28,6 +29,7 @@ const DEFAULT_POLICY: PasswordPolicy = {
   captcha_threshold: 3,
   lockout_threshold: 10,
   lockout_minutes: 15,
+  require_mfa: false,
 };
 
 function parseConfigValue(raw: unknown): Record<string, unknown> {
@@ -58,6 +60,7 @@ function normalizePolicy(raw: Record<string, unknown>): PasswordPolicy {
     captcha_threshold: Number(raw.captcha_threshold ?? DEFAULT_POLICY.captcha_threshold),
     lockout_threshold: Number(raw.lockout_threshold ?? DEFAULT_POLICY.lockout_threshold),
     lockout_minutes: Number(raw.lockout_minutes ?? DEFAULT_POLICY.lockout_minutes),
+    require_mfa: Boolean(raw.require_mfa ?? DEFAULT_POLICY.require_mfa),
   };
 }
 

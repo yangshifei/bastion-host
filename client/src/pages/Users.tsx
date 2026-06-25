@@ -15,6 +15,7 @@ import { AddIcon, DeleteIcon, EditIcon, SearchIcon, RefreshIcon, UserIcon, Secur
 import { userService, UserQuery } from '../services/userService';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
+import { StatCard } from '../components/StatCard';
 import { EmptyState } from '../components/EmptyState';
 import { usePagination } from '../hooks/usePagination';
 import type { SafeUser } from '../types';
@@ -64,12 +65,20 @@ function relativeTime(iso: string): string {
 
 export const Users: React.FC = () => {
   const [users, setUsers] = useState<SafeUser[]>([]);
+  const [userStats, setUserStats] = useState<{ total: number; admins: number; operators: number; auditors: number; active: number; disabled: number; mfa_enabled: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [dialogVisible, setDialogVisible] = useState(false);
   const [editingUser, setEditingUser] = useState<SafeUser | null>(null);
   const [formData, setFormData] = useState<any>({});
   const [search, setSearch] = useState('');
   const pag = usePagination();
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await userService.getStats();
+      if (res.code === 0 && res.data) setUserStats(res.data);
+    } catch { /* ignore */ }
+  }, []);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -85,7 +94,7 @@ export const Users: React.FC = () => {
     }
   }, [pag.page, pag.pageSize, search]);
 
-  useEffect(() => { fetchUsers(); }, [fetchUsers]);
+  useEffect(() => { fetchStats(); fetchUsers(); }, [fetchStats, fetchUsers]);
 
   const openCreate = () => {
     setEditingUser(null);
@@ -224,10 +233,17 @@ export const Users: React.FC = () => {
     <div>
       <PageHeader title="用户管理" description="管理系统账号、角色权限与 MFA 安全设置">
         <Space>
-          <Button variant="outline" icon={<RefreshIcon />} onClick={fetchUsers}>刷新</Button>
+          <Button variant="outline" icon={<RefreshIcon />} onClick={() => { fetchStats(); fetchUsers(); }}>刷新</Button>
           <Button theme="primary" icon={<AddIcon />} onClick={openCreate}>添加用户</Button>
         </Space>
       </PageHeader>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+        <StatCard title="用户总数" value={userStats?.total ?? '-'} subtitle={`启用 ${userStats?.active ?? 0} · 禁用 ${userStats?.disabled ?? 0}`} icon={<UserIcon size="22px" />} accent="cyan" />
+        <StatCard title="管理员" value={userStats?.admins ?? '-'} subtitle="系统完全控制" icon={<SecuredIcon size="22px" />} accent="red" />
+        <StatCard title="操作员" value={userStats?.operators ?? '-'} subtitle="远程连接资产" icon={<UserIcon size="22px" />} accent="blue" />
+        <StatCard title="MFA 启用" value={userStats?.mfa_enabled ?? '-'} subtitle={`${userStats?.total ? Math.round(userStats.mfa_enabled / userStats.total * 100) : 0}% 覆盖率`} icon={<SecuredIcon size="22px" />} accent="green" />
+      </div>
 
       <div className="content-card">
         <FilterBar>

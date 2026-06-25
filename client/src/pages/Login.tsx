@@ -10,6 +10,7 @@ import {
 import { authService } from '../services/authService';
 import { useAuthStore } from '../stores/authStore';
 import { BrandLogo } from '../components/BrandLogo';
+import { CaptchaChallenge } from '../components/CaptchaChallenge';
 import type { LoginResponse } from '../types';
 
 const { FormItem } = Form;
@@ -31,19 +32,40 @@ export const Login: React.FC = () => {
   const [mfaCode, setMfaCode] = useState('');
   const [mfaToken, setMfaToken] = useState('');
   const [recoveryCode, setRecoveryCode] = useState('');
+  const [showCaptcha, setShowCaptcha] = useState(false);
+  const [captchaId, setCaptchaId] = useState('');
+  const [captchaQuestion, setCaptchaQuestion] = useState('');
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
 
   React.useEffect(() => {
     if (isAuthenticated) navigate('/dashboard');
   }, [isAuthenticated, navigate]);
+
+  const handleLoginError = (message: string, extra?: { requireCaptcha?: boolean }) => {
+    if (extra?.requireCaptcha) {
+      setShowCaptcha(true);
+      setCaptchaId('');
+      setCaptchaQuestion('');
+      setCaptchaAnswer('');
+    }
+    MessagePlugin.error(message);
+  };
 
   const handleLogin = async () => {
     if (!username || !password) {
       MessagePlugin.warning('请输入用户名和密码');
       return;
     }
+    if (showCaptcha && (!captchaId || !captchaAnswer.trim())) {
+      MessagePlugin.warning('请输入验证码');
+      return;
+    }
     setLoading(true);
     try {
-      const res = await authService.login(username, password);
+      const captcha = showCaptcha
+        ? { captcha_id: captchaId, captcha_answer: captchaAnswer.trim() }
+        : undefined;
+      const res = await authService.login(username, password, captcha);
       if (res.code === 0 && res.data) {
         const data = res.data as LoginResponse;
         if (data.requireMfa && data.mfaToken) {
@@ -52,16 +74,21 @@ export const Login: React.FC = () => {
         } else if (data.require_password_change && data.token && data.user) {
           setAuth(data.token, data.user);
           navigate('/force-change-password');
+        } else if (data.require_mfa_setup && data.token && data.user) {
+          setAuth(data.token, data.user);
+          MessagePlugin.warning('系统要求启用 MFA，请先完成设置');
+          navigate('/profile?setupMfa=1');
         } else if (data.token && data.user) {
           setAuth(data.token, data.user);
           MessagePlugin.success('登录成功');
           navigate('/dashboard');
         }
       } else {
-        MessagePlugin.error(res.message || '登录失败');
+        handleLoginError(res.message || '登录失败', res.data as LoginResponse);
       }
     } catch (err: any) {
-      MessagePlugin.error(err.response?.data?.message || '登录失败');
+      const body = err.response?.data;
+      handleLoginError(body?.message || '登录失败', body?.data);
     } finally {
       setLoading(false);
     }
@@ -210,6 +237,20 @@ export const Login: React.FC = () => {
                     onEnter={handleLogin}
                   />
                 </FormItem>
+                {showCaptcha && (
+                  <FormItem label="验证码">
+                    <CaptchaChallenge
+                      captchaId={captchaId}
+                      question={captchaQuestion}
+                      answer={captchaAnswer}
+                      onAnswerChange={setCaptchaAnswer}
+                      onCaptchaLoaded={(id, question) => {
+                        setCaptchaId(id);
+                        setCaptchaQuestion(question);
+                      }}
+                    />
+                  </FormItem>
+                )}
                 <Button
                   theme="primary"
                   block

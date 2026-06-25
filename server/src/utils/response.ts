@@ -24,10 +24,11 @@ export function success<T>(res: Response, data?: T, message = 'ok', httpStatus =
   });
 }
 
-export function error(res: Response, message: string, code = 1, httpStatus = 400): void {
+export function error(res: Response, message: string, code = 1, httpStatus = 400, data?: unknown): void {
   res.status(httpStatus).json({
     code,
     message,
+    ...(data !== undefined ? { data } : {}),
   });
 }
 

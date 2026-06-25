@@ -2,8 +2,16 @@ import api from './api';
 import type { ApiResponse, LoginResponse, SafeUser, MfaSetupData } from '../types';
 
 export const authService = {
-  login(username: string, password: string): Promise<ApiResponse<LoginResponse>> {
-    return api.post('/auth/login', { username, password }).then(r => r.data);
+  login(
+    username: string,
+    password: string,
+    captcha?: { captcha_id: string; captcha_answer: string }
+  ): Promise<ApiResponse<LoginResponse>> {
+    return api.post('/auth/login', { username, password, ...captcha }).then(r => r.data);
+  },
+
+  getCaptcha(): Promise<ApiResponse<{ challenge_id: string; question: string; expires_in: number }>> {
+    return api.get('/auth/captcha').then(r => r.data);
   },
 
   mfaVerify(mfaToken: string, code: string): Promise<ApiResponse<LoginResponse>> {

@@ -32,6 +32,7 @@ const updatePolicySchema = z.object({
   captcha_threshold: z.number().min(1).max(10).optional(),
   lockout_threshold: z.number().min(5).max(20).optional(),
   lockout_minutes: z.number().min(5).max(1440).optional(),
+  require_mfa: z.boolean().optional(),
 });
 
 const addIpSchema = z.object({
