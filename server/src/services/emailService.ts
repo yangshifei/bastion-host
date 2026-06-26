@@ -11,13 +11,15 @@ let _configHash = '';
 
 async function getTransporter(config: SmtpConfig): Promise<nodemailer.Transporter> {
   if (!config.host) throw new Error('SMTP 未配置');
-  const hash = `${config.host}:${config.port}:${config.user}`;
+  const user = config.user || config.from_address; // fallback to from_address as user
+  if (!user) throw new Error('SMTP 账号未设置');
+  const hash = `${config.host}:${config.port}:${user}`;
   if (_transporter && hash === _configHash) return _transporter;
   _transporter = nodemailer.createTransport({
     host: config.host,
     port: config.port,
     secure: config.secure || false,
-    auth: config.user ? { user: config.user, pass: config.password || '' } : undefined,
+    auth: { user, pass: config.password || '' },
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 10000,

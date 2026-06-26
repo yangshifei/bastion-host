@@ -126,7 +126,12 @@ export const passwordPolicyService = {
 
   async updateSmtpConfig(updates: Partial<SmtpConfig>): Promise<SmtpConfig> {
     const current = await this.getSmtpConfig();
-    const merged = { ...current, ...updates };
+    // Don't overwrite password with empty string
+    const safeUpdates = { ...updates };
+    if (safeUpdates.password === '' && current.password) {
+      safeUpdates.password = current.password;
+    }
+    const merged = { ...current, ...safeUpdates };
     await pool.query(
       `INSERT INTO system_config (config_key, config_value) VALUES ('smtp_config', ?)
        ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)`,

@@ -549,16 +549,12 @@ export const SecuritySettings: React.FC = () => {
               <Input value={String(smtpForm.port)} onChange={v => setSmtpForm(p => ({ ...p, port: parseInt(v) || 587 }))} placeholder="587" style={{ width: 100 }} />
             </div>
             <div>
-              <div className="info-label mb-1.5">发件邮箱</div>
-              <Input value={smtpForm.from_address} onChange={v => setSmtpForm(p => ({ ...p, from_address: v }))} placeholder="bastion@qq.com" />
+              <div className="info-label mb-1.5">发件邮箱 (也是登录账号)</div>
+              <Input value={smtpForm.from_address} onChange={v => setSmtpForm(p => ({ ...p, from_address: v, user: v }))} placeholder="bastion@qq.com" />
             </div>
             <div>
-              <div className="info-label mb-1.5">账号</div>
-              <Input value={smtpForm.user} onChange={v => setSmtpForm(p => ({ ...p, user: v }))} placeholder="SMTP 用户名" />
-            </div>
-            <div>
-              <div className="info-label mb-1.5">密码</div>
-              <Input type="password" value={smtpForm.password} onChange={v => setSmtpForm(p => ({ ...p, password: v }))} placeholder="留空不修改" />
+              <div className="info-label mb-1.5">授权码</div>
+              <Input type="password" value={smtpForm.password} onChange={v => setSmtpForm(p => ({ ...p, password: v }))} placeholder="QQ邮箱需填授权码" />
             </div>
             <div>
               <Button theme="primary" loading={smtpSaving} onClick={saveSmtp}>保存</Button>
