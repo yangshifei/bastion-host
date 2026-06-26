@@ -42,9 +42,11 @@ export function useMfa() {
         setState('enabled');
         // Upgrade restricted token to full token after MFA setup
         if (res.data.token) {
+          // Update token FIRST so getMe() uses the new full token
+          useAuthStore.getState().setToken(res.data.token);
           const meRes = await authService.getMe();
           if (meRes.code === 0 && meRes.data) {
-            useAuthStore.getState().login(res.data.token, meRes.data);
+            useAuthStore.getState().setUser(meRes.data);
           }
         } else {
           const meRes = await authService.getMe();
