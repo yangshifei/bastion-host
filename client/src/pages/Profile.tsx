@@ -28,6 +28,46 @@ const ROLE_ICON_COLOR: Record<string, string> = {
   operator: 'text-cyan-400',
 };
 
+const DisableMfaForm: React.FC<{ onDisabled: () => void }> = ({ onDisabled }) => {
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [show, setShow] = useState(false);
+
+  if (!show) {
+    return (
+      <Button variant="outline" theme="danger" onClick={() => setShow(true)}>
+        禁用 MFA
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-lg bg-red-500/5 border border-red-500/10">
+      <Input
+        type="password"
+        value={password}
+        onChange={setPassword}
+        placeholder="输入密码确认"
+        prefixIcon={<LockOnIcon />}
+        style={{ width: 200 }}
+        onEnter={() => handleDisable()}
+      />
+      <Button theme="danger" loading={loading} onClick={handleDisable}>确认禁用</Button>
+      <Button variant="text" onClick={() => { setShow(false); setPassword(''); }}>取消</Button>
+    </div>
+  );
+
+  async function handleDisable() {
+    if (!password) { MessagePlugin.warning('请输入密码'); return; }
+    setLoading(true);
+    try {
+      const res = await authService.mfaDisable(password);
+      if (res.code === 0) { MessagePlugin.success('MFA 已禁用'); onDisabled(); }
+      else MessagePlugin.error(res.message || '禁用失败');
+    } catch { MessagePlugin.error('禁用失败'); }
+    finally { setLoading(false); setShow(false); setPassword(''); }
+  }
+};
 
 export const Profile: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -164,7 +204,7 @@ export const Profile: React.FC = () => {
         {/* ── MFA ── */}
         <SectionCard
           title="多因素认证 (MFA)"
-          description="增强账号安全 — 启用后登录需输入 Authenticator 动态验证码"
+          description="增强账号安全 — 启用后登录需输入动态验证码"
         >
           {setupMfa && !mfaEnabled && (
             <Alert
@@ -173,7 +213,17 @@ export const Profile: React.FC = () => {
               className="mb-4"
             />
           )}
-          <MfaSetup autoOpen={setupMfa && !mfaEnabled} onEnabled={loadProfile} />
+
+          {mfaEnabled ? (
+            <div>
+              <p className="text-sm text-slate-300 mb-3">
+                MFA 已启用 · {user?.mfa_method === 'email' ? '邮箱验证码' : 'TOTP 验证器应用'}
+              </p>
+              <DisableMfaForm onDisabled={() => { setMfaEnabled(false); loadProfile(); }} />
+            </div>
+          ) : (
+            <MfaSetup autoOpen={setupMfa} onEnabled={() => { setMfaEnabled(true); loadProfile(); }} />
+          )}
         </SectionCard>
 
         {/* ── Change Password ── */}
