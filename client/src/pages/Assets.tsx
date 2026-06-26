@@ -340,13 +340,7 @@ export const Assets: React.FC = () => {
       title: '操作',
       width: 160,
       cell: ({ row }: { row: AssetTreeRow }) => {
-        if (isAssetGroupRow(row)) {
-          return (
-            <Button variant="text" size="small" icon={<AddIcon />} onClick={() => openCreate(row.group_name)}>
-              添加
-            </Button>
-          );
-        }
+        if (isAssetGroupRow(row)) return null;
         return (
           <Space size="small">
             <Button variant="text" size="small" icon={<EditIcon />} onClick={() => openEdit(row)} />
@@ -433,6 +427,7 @@ export const Assets: React.FC = () => {
           rowKey="rowKey"
           loading={loading}
           hover
+          rowClassName={({ row }: any) => isAssetGroupRow(row) ? 'asset-group-row' : ''}
           tree={{
             childrenKey: 'children',
             treeNodeColumnIndex: 0,

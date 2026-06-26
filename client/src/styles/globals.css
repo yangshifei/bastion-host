@@ -479,6 +479,15 @@ html[theme-mode='light'] .t-table th { background: rgba(0,0,0,0.02) !important; 
 .replay-player .t-slider__track {
   height: 5px !important;
 }
+/* Asset group row background */
+.asset-group-row td {
+  background: var(--bg-surface) !important;
+  border-bottom-color: var(--border-default) !important;
+}
+.asset-group-row:hover td {
+  background: var(--bg-elevated) !important;
+}
+
 .replay-player .t-slider__button {
   width: 14px !important;
   height: 14px !important;
