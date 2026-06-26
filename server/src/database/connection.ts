@@ -146,6 +146,28 @@ async function runMigrations(): Promise<void> {
   } catch (err: any) {
     logger.warn({ err }, 'Migration default password_policy skipped');
   }
+
+  // ── 003-email-mfa ──
+  await safeAlter(
+    `ALTER TABLE users ADD COLUMN mfa_method ENUM('totp','email') DEFAULT NULL COMMENT 'MFA 方式'`,
+    'users.mfa_method'
+  );
+
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS email_mfa_codes (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL,
+       code_hash VARCHAR(255) NOT NULL,
+       email VARCHAR(128) NOT NULL,
+       expires_at DATETIME NOT NULL,
+       attempts INT NOT NULL DEFAULT 0,
+       session_token VARCHAR(128) NOT NULL UNIQUE,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+       INDEX idx_session (session_token)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table email_mfa_codes'
+  );
 }
 
 export default pool;

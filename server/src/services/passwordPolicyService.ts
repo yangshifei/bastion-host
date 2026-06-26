@@ -17,6 +17,26 @@ export interface PasswordPolicy {
   require_mfa: boolean;
 }
 
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  password: string;
+  from_address: string;
+  from_name: string;
+}
+
+const DEFAULT_SMTP: SmtpConfig = {
+  host: '',
+  port: 587,
+  secure: false,
+  user: '',
+  password: '',
+  from_address: '',
+  from_name: '堡垒机安全验证',
+};
+
 const DEFAULT_POLICY: PasswordPolicy = {
   min_length: 8,
   require_upper: true,
@@ -84,6 +104,31 @@ export const passwordPolicyService = {
     const merged = { ...current, ...updates };
     await pool.query(
       `INSERT INTO system_config (config_key, config_value) VALUES ('password_policy', ?)
+       ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)`,
+      [JSON.stringify(merged)]
+    );
+    return merged;
+  },
+
+  async getSmtpConfig(): Promise<SmtpConfig> {
+    try {
+      const [rows] = await pool.query<any[]>(
+        `SELECT config_value FROM system_config WHERE config_key = 'smtp_config'`
+      );
+      if (rows.length > 0 && rows[0].config_value != null) {
+        return { ...DEFAULT_SMTP, ...parseConfigValue(rows[0].config_value) as any };
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Failed to load SMTP config, using defaults');
+    }
+    return DEFAULT_SMTP;
+  },
+
+  async updateSmtpConfig(updates: Partial<SmtpConfig>): Promise<SmtpConfig> {
+    const current = await this.getSmtpConfig();
+    const merged = { ...current, ...updates };
+    await pool.query(
+      `INSERT INTO system_config (config_key, config_value) VALUES ('smtp_config', ?)
        ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)`,
       [JSON.stringify(merged)]
     );
