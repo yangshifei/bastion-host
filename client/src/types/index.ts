@@ -32,6 +32,7 @@ export interface SafeUser {
   phone: string | null;
   mfa_enabled: boolean;
   must_change_password?: boolean;
+  require_mfa_setup?: boolean;
   status: UserStatus;
   last_login: string | null;
   created_at: string;

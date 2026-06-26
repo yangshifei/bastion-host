@@ -81,7 +81,7 @@ export const Login: React.FC = () => {
           setAuth(data.token, data.user);
           navigate('/force-change-password');
         } else if (data.require_mfa_setup && data.token && data.user) {
-          setAuth(data.token, data.user);
+          setAuth(data.token, { ...data.user, require_mfa_setup: true });
           MessagePlugin.warning('系统要求启用 MFA，请先完成设置');
           navigate('/profile?setupMfa=1');
         } else if (data.token && data.user) {
