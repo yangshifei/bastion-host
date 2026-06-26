@@ -30,7 +30,9 @@ FROM node:18-alpine
 RUN npm config set registry https://registry.npmmirror.com
 
 # Install Guacamole RDP client library
-RUN apk add --no-cache libguac-client-rdp openssh-client tzdata
+RUN apk add --no-cache libguac-client-rdp openssh-client tzdata && \
+    ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    echo "Asia/Shanghai" > /etc/timezone
 
 WORKDIR /app
 
