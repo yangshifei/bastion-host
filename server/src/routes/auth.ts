@@ -14,6 +14,7 @@ import { success, error } from '../utils/response';
 import { passwordPolicyService } from '../services/passwordPolicyService';
 import { notificationService } from '../services/notificationService';
 import { emailService } from '../services/emailService';
+import logger from '../utils/logger';
 import { captchaService } from '../services/captchaService';
 
 const router = Router();
@@ -421,7 +422,8 @@ router.post('/mfa/enable', authenticate, validate(mfaEnableSchema), async (req: 
     });
 
     if (!verified) {
-      error(res, '验证码错误，MFA 未启用', 1, 400);
+      logger.warn({ userId, hasSecret: !!user.totp_secret, secretLen: user.totp_secret?.length }, 'TOTP verification failed during MFA enable');
+      error(res, '验证码错误，请确认手机时间与服务器时间一致后重新扫码', 1, 400);
       return;
     }
 
