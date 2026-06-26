@@ -125,7 +125,7 @@ const RecoveryCodeViewer: React.FC = () => {
       if (res.code === 0) setRemaining(res.data?.remaining ?? 0);
       else MessagePlugin.error(res.message || '验证失败');
     } catch { MessagePlugin.error('验证失败'); }
-    finally { setLoading(false); setPassword(''); }
+    finally { setLoading(false); }
   }
 
   async function handleRegenerate() {
