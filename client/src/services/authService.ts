@@ -34,6 +34,14 @@ export const authService = {
     return api.post('/auth/mfa/email/verify', { session_token: sessionToken, code }).then(r => r.data);
   },
 
+  emailMfaEnable(): Promise<ApiResponse<any>> {
+    return api.post('/auth/mfa/email/enable').then(r => r.data);
+  },
+
+  emailMfaVerifyEnable(code: string): Promise<ApiResponse<{ recoveryCodes: string[] }>> {
+    return api.post('/auth/mfa/email/enable/verify', { code }).then(r => r.data);
+  },
+
   emailMfaResend(sessionToken: string): Promise<ApiResponse<any>> {
     return api.post('/auth/mfa/email/resend', { session_token: sessionToken }).then(r => r.data);
   },

@@ -711,6 +711,62 @@ router.post('/mfa/email/verify', loginLimiter, validate(emailMfaSchema), async (
   }
 });
 
+// POST /api/auth/mfa/email/enable — start email MFA setup (send code)
+router.post('/mfa/email/enable', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const [rows] = await pool.query<any[]>('SELECT email, mfa_enabled FROM users WHERE id = ?', [userId]);
+    if (rows.length === 0) { error(res, '用户不存在', 1, 404); return; }
+    if (rows[0].mfa_enabled) { error(res, 'MFA 已启用，请先禁用再重新设置', 1, 400); return; }
+    const email = rows[0].email;
+    if (!email) { error(res, '请先在个人设置中绑定邮箱', 1, 400); return; }
+
+    const { code, error: sendError } = await emailService.sendCode(email);
+    if (sendError || !code) { error(res, '验证码发送失败: ' + (sendError || 'unknown'), 1, 500); return; }
+
+    const codeHash = await bcrypt.hash(code, 10);
+    // Store temp code for verification
+    await pool.query('DELETE FROM email_mfa_codes WHERE user_id = ?', [userId]);
+    await pool.query(
+      `INSERT INTO email_mfa_codes (user_id, code_hash, email, expires_at, session_token) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE), ?)`,
+      [userId, codeHash, email, 'mfa_setup_' + userId]
+    );
+
+    success(res, { email_hint: email.replace(/(.{2}).*(@.*)/, '$1***$2') }, '验证码已发送');
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+
+// POST /api/auth/mfa/email/enable/verify — verify email code and enable
+router.post('/mfa/email/enable/verify', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const { code } = req.body;
+    if (!code || code.length !== 6) { error(res, '请输入 6 位验证码', 1, 400); return; }
+
+    const [rows] = await pool.query<any[]>(
+      `SELECT * FROM email_mfa_codes WHERE user_id = ? AND session_token = ? AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1`,
+      [userId, 'mfa_setup_' + userId]
+    );
+    if (rows.length === 0) { error(res, '验证码已过期或未发送', 1, 400); return; }
+
+    const valid = await bcrypt.compare(code, rows[0].code_hash);
+    if (!valid) { error(res, '验证码错误', 1, 400); return; }
+
+    await pool.query('DELETE FROM email_mfa_codes WHERE user_id = ?', [userId]);
+
+    // Generate recovery codes
+    const codes = Array.from({ length: 6 }, () => crypto.randomBytes(4).toString('hex').toUpperCase());
+    const hashedCodes = await Promise.all(codes.map(c => bcrypt.hash(c, 10)));
+
+    await pool.query(
+      'UPDATE users SET mfa_enabled = 1, mfa_method = ?, mfa_recovery = ? WHERE id = ?',
+      ['email', JSON.stringify(hashedCodes), userId]
+    );
+
+    success(res, { recoveryCodes: codes }, '邮箱 MFA 已启用');
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+
 // POST /api/auth/mfa/email/resend
 router.post('/mfa/email/resend', loginLimiter, async (req: Request, res: Response) => {
   try {

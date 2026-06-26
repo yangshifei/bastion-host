@@ -75,5 +75,6 @@ export function useMfa() {
     startSetup,
     verifyAndEnable,
     reset,
+    setState,
   };
 }
