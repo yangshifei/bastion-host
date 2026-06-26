@@ -464,6 +464,28 @@ router.post('/mfa/enable', authenticate, validate(mfaEnableSchema), async (req: 
   }
 });
 
+// ---- POST /api/auth/mfa/recovery/view ----
+router.post('/mfa/recovery/view', authenticate, validate(z.object({ password: z.string().min(1) })), async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const [rows] = await pool.query<any[]>(
+      'SELECT password_hash, mfa_recovery, mfa_enabled FROM users WHERE id = ? AND deleted_at IS NULL',
+      [userId]
+    );
+    if (rows.length === 0 || !rows[0].mfa_enabled) { error(res, 'MFA 未启用', 1, 400); return; }
+
+    const valid = await bcrypt.compare(req.body.password, rows[0].password_hash);
+    if (!valid) { error(res, '密码错误', 1, 401); return; }
+
+    const codes = rows[0].mfa_recovery;
+    if (!codes) { error(res, '没有恢复码记录', 1, 400); return; }
+
+    // Return count of remaining codes (NOT the codes themselves — those are hashed)
+    const parsed = typeof codes === 'string' ? JSON.parse(codes) : codes;
+    success(res, { remaining: Array.isArray(parsed) ? parsed.length : 6 }, `还有 ${Array.isArray(parsed) ? parsed.length : 6} 个恢复码可用`);
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+
 // ---- POST /api/auth/mfa/disable ----
 router.post('/mfa/disable', authenticate, validate(z.object({ password: z.string().min(1) })), async (req: Request, res: Response) => {
   try {

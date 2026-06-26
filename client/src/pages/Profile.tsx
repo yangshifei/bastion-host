@@ -69,6 +69,47 @@ const DisableMfaForm: React.FC<{ onDisabled: () => void }> = ({ onDisabled }) =>
   }
 };
 
+const RecoveryCodeViewer: React.FC = () => {
+  const [password, setPassword] = useState('');
+  const [remaining, setRemaining] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [show, setShow] = useState(false);
+
+  if (!show) {
+    return <Button variant="outline" size="small" onClick={() => setShow(true)}>查看恢复码</Button>;
+  }
+
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+      {remaining === null ? (
+        <>
+          <Input type="password" value={password} onChange={setPassword}
+            placeholder="输入密码确认" prefixIcon={<LockOnIcon />} style={{ width: 180 }}
+            onEnter={() => handleView()} />
+          <Button size="small" loading={loading} onClick={handleView}>确认</Button>
+          <Button variant="text" size="small" onClick={() => { setShow(false); setPassword(''); }}>取消</Button>
+        </>
+      ) : (
+        <>
+          <span className="text-sm text-slate-300">剩余 <b className="text-cyan-400">{remaining}</b> 个可用恢复码</span>
+          <Button variant="text" size="small" onClick={() => { setShow(false); setRemaining(null); setPassword(''); }}>关闭</Button>
+        </>
+      )}
+    </div>
+  );
+
+  async function handleView() {
+    if (!password) { MessagePlugin.warning('请输入密码'); return; }
+    setLoading(true);
+    try {
+      const res = await authService.mfaRecoveryView(password);
+      if (res.code === 0) setRemaining(res.data?.remaining ?? 0);
+      else MessagePlugin.error(res.message || '验证失败');
+    } catch { MessagePlugin.error('验证失败'); }
+    finally { setLoading(false); setPassword(''); }
+  }
+};
+
 export const Profile: React.FC = () => {
   const [searchParams] = useSearchParams();
   const setupMfa = searchParams.get('setupMfa') === '1';
@@ -219,7 +260,10 @@ export const Profile: React.FC = () => {
               <p className="text-sm text-slate-300 mb-3">
                 MFA 已启用 · {user?.mfa_method === 'email' ? '邮箱验证码' : 'TOTP 验证器应用'}
               </p>
-              <DisableMfaForm onDisabled={() => { setMfaEnabled(false); loadProfile(); }} />
+              <div className="flex items-center gap-3 flex-wrap">
+                <DisableMfaForm onDisabled={() => { setMfaEnabled(false); loadProfile(); }} />
+                <RecoveryCodeViewer />
+              </div>
             </div>
           ) : (
             <MfaSetup autoOpen={setupMfa} onEnabled={() => { setMfaEnabled(true); loadProfile(); }} />
