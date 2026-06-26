@@ -251,45 +251,52 @@ export const Assets: React.FC = () => {
   const columns = [
     {
       colKey: 'name',
-      title: '名称 / 分组',
+      title: '名称',
       ellipsis: true,
-      width: 220,
+      width: 200,
       cell: ({ row }: { row: AssetTreeRow }) => {
         if (isAssetGroupRow(row)) {
           return (
-            <span className="inline-flex items-center gap-2 font-medium text-slate-200">
-              <FolderOpenIcon className="text-cyan-400/80 shrink-0" />
+            <span className="inline-flex items-center gap-2 font-semibold text-sm text-slate-200">
+              <span className="flex items-center justify-center w-6 h-6 rounded-md bg-cyan-500/10 text-cyan-400">
+                <FolderOpenIcon size="14px" />
+              </span>
               <span>{row.group_name}</span>
-              <Tag theme="default" variant="light" size="small">
-                {row.children.length}
-              </Tag>
+              <span className="text-[11px] text-slate-500 font-normal">({row.children.length})</span>
             </span>
           );
         }
-        return <span className="text-slate-300">{row.name}</span>;
+        return (
+          <div className="flex items-center gap-2.5">
+            <span className={`flex items-center justify-center w-6 h-6 rounded-md shrink-0 ${row.protocol === 'ssh' ? 'bg-blue-500/10 text-blue-400' : 'bg-amber-500/10 text-amber-400'}`}>
+              {row.protocol === 'ssh' ? <TerminalIcon size="13px" /> : <DesktopIcon size="13px" />}
+            </span>
+            <span className="text-sm font-medium text-slate-200 truncate">{row.name}</span>
+          </div>
+        );
       },
     },
     {
       colKey: 'host',
-      title: '主机地址',
-      ellipsis: true,
-      width: 160,
-      cell: ({ row }: { row: AssetTreeRow }) =>
-        isAssetGroupRow(row) ? <span className="text-slate-600">—</span> : row.host,
-    },
-    {
-      colKey: 'port',
-      title: '端口',
-      width: 72,
-      cell: ({ row }: { row: AssetTreeRow }) =>
-        isAssetGroupRow(row) ? <span className="text-slate-600">—</span> : row.port,
+      title: '连接地址',
+      width: 200,
+      cell: ({ row }: { row: AssetTreeRow }) => {
+        if (isAssetGroupRow(row)) return <span className="text-slate-600 text-xs">—</span>;
+        return (
+          <div className="text-sm">
+            <span className="text-slate-300 font-mono">{row.host}</span>
+            <span className="text-slate-600 mx-1">:</span>
+            <span className="text-slate-400 font-mono text-xs">{row.port}</span>
+          </div>
+        );
+      },
     },
     {
       colKey: 'protocol',
       title: '协议',
-      width: 80,
+      width: 70,
       cell: ({ row }: { row: AssetTreeRow }) => {
-        if (isAssetGroupRow(row)) return <span className="text-slate-600">—</span>;
+        if (isAssetGroupRow(row)) return <span className="text-slate-600 text-xs">—</span>;
         return (
           <Tag theme={row.protocol === 'ssh' ? 'primary' : 'warning'} variant="light" size="small">
             {row.protocol.toUpperCase()}
@@ -299,22 +306,14 @@ export const Assets: React.FC = () => {
     },
     {
       colKey: 'recording_enabled',
-      title: '回放',
-      width: 96,
+      title: '录像',
+      width: 75,
       cell: ({ row }: { row: AssetTreeRow }) => {
-        if (isAssetGroupRow(row)) return <span className="text-slate-600">—</span>;
+        if (isAssetGroupRow(row)) return <span className="text-slate-600 text-xs">—</span>;
         const enabled = Boolean(row.recording_enabled);
         return (
-          <div
-            className="recording-switch-cell"
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <RecordingSwitch
-              size="small"
-              value={enabled}
-              onChange={(v) => handleToggleRecording(row, v)}
-            />
+          <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+            <RecordingSwitch size="small" value={enabled} onChange={(v) => handleToggleRecording(row, v)} />
           </div>
         );
       },
@@ -322,55 +321,32 @@ export const Assets: React.FC = () => {
     {
       colKey: 'status',
       title: '状态',
-      width: 88,
+      width: 80,
       cell: ({ row }: { row: AssetTreeRow }) => {
-        if (isAssetGroupRow(row)) return <span className="text-slate-600">—</span>;
+        if (isAssetGroupRow(row)) return <span className="text-slate-600 text-xs">—</span>;
+        const online = row.status === 'online';
         return (
-          <Tag
-            theme={row.status === 'online' ? 'success' : row.status === 'offline' ? 'danger' : 'default'}
-            variant="light"
-            size="small"
-          >
-            {row.status === 'online' ? '在线' : row.status === 'offline' ? '离线' : '未知'}
-          </Tag>
+          <div className="flex items-center gap-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-emerald-400' : row.status === 'offline' ? 'bg-red-400' : 'bg-slate-500'}`} />
+            <span className={`text-xs ${online ? 'text-emerald-400' : row.status === 'offline' ? 'text-red-400' : 'text-slate-500'}`}>
+              {row.status === 'online' ? '在线' : row.status === 'offline' ? '离线' : '未知'}
+            </span>
+          </div>
         );
       },
     },
     {
       colKey: 'actions',
       title: '操作',
-      width: 240,
+      width: 160,
       cell: ({ row }: { row: AssetTreeRow }) => {
-        if (isAssetGroupRow(row)) {
-          return (
-            <Button
-              variant="text"
-              size="small"
-              icon={<AddIcon />}
-              onClick={() => openCreate(row.group_name)}
-            >
-              添加资产
-            </Button>
-          );
-        }
+        if (isAssetGroupRow(row)) return null;
         return (
           <Space size="small">
-            <Button variant="text" size="small" icon={<EditIcon />} onClick={() => openEdit(row)}>
-              编辑
-            </Button>
-            <Button
-              variant="text"
-              size="small"
-              icon={<RefreshIcon />}
-              loading={testing === row.id}
-              onClick={() => handleTest(row.id)}
-            >
-              测试
-            </Button>
-            <Popconfirm content="确认删除此资产？" onConfirm={() => handleDelete(row.id)}>
-              <Button variant="text" size="small" theme="danger" icon={<DeleteIcon />}>
-                删除
-              </Button>
+            <Button variant="text" size="small" icon={<EditIcon />} onClick={() => openEdit(row)} />
+            <Button variant="text" size="small" icon={<RefreshIcon />} loading={testing === row.id} onClick={() => handleTest(row.id)} />
+            <Popconfirm content="确认删除？" onConfirm={() => handleDelete(row.id)}>
+              <Button variant="text" size="small" theme="danger" icon={<DeleteIcon />} />
             </Popconfirm>
           </Space>
         );

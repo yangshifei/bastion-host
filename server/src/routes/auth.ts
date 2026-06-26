@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import speakeasy from 'speakeasy';
@@ -12,6 +13,8 @@ import { recordAudit, auditFromReq } from '../middleware/audit';
 import { success, error } from '../utils/response';
 import { passwordPolicyService } from '../services/passwordPolicyService';
 import { notificationService } from '../services/notificationService';
+import { emailService } from '../services/emailService';
+import logger from '../utils/logger';
 import { captchaService } from '../services/captchaService';
 
 const router = Router();
@@ -211,13 +214,36 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req: Request, 
 
     // Global MFA policy: must enable MFA before full access
     if (policy.require_mfa && !user.mfa_enabled) {
-      const token = generateToken(user.id, user.username, user.role);
+      // Issue restricted token — only allows /auth/ and /profile endpoints
+      const token = jwt.sign(
+        { userId: user.id, username: user.username, role: user.role, scope: 'mfa_setup' },
+        config.jwt.secret,
+        { expiresIn: '30m' }
+      );
       success(res, { token, user: sanitizeUser(user), require_mfa_setup: true }, '请先启用 MFA');
       return;
     }
 
-    // If MFA enabled, return intermediate token
+    // If MFA enabled, check method
     if (user.mfa_enabled) {
+      if (user.mfa_method === 'email' && user.email) {
+        // Email MFA: send code and return session token
+        const { code, error: sendError } = await emailService.sendCode(user.email);
+        if (sendError || !code) {
+          error(res, '验证码邮件发送失败，请稍后重试或联系管理员', 1, 500);
+          return;
+        }
+        const sessionToken = crypto.randomUUID();
+        const codeHash = await bcrypt.hash(code, 10);
+        await pool.query(
+          `INSERT INTO email_mfa_codes (user_id, code_hash, email, expires_at, session_token) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE), ?)`,
+          [user.id, codeHash, user.email, sessionToken]
+        );
+        const maskedEmail = user.email.replace(/(.{2}).*(@.*)/, '$1***$2');
+        success(res, { require_email_mfa: true, session_token: sessionToken, email_hint: maskedEmail }, '验证码已发送至邮箱');
+        return;
+      }
+      // TOTP MFA (default)
       const mfaToken = generateMfaToken(user.id);
       success(res, { requireMfa: true, mfaToken }, '需要 MFA 验证');
       return;
@@ -288,7 +314,7 @@ router.post('/mfa/verify', loginLimiter, validate(mfaVerifySchema), async (req: 
       secret: user.totp_secret,
       encoding: 'base32',
       token: code,
-      window: 1, // ±1 interval = 90s total window
+      window: 2, // ±2 intervals = 150s tolerance for clock skew // ±1 interval = 90s total window
     });
 
     if (!verified) {
@@ -392,11 +418,12 @@ router.post('/mfa/enable', authenticate, validate(mfaEnableSchema), async (req: 
       secret: user.totp_secret,
       encoding: 'base32',
       token: code,
-      window: 1,
+      window: 2, // ±2 intervals = 150s tolerance for clock skew
     });
 
     if (!verified) {
-      error(res, '验证码错误，MFA 未启用', 1, 400);
+      logger.warn({ userId, hasSecret: !!user.totp_secret, secretLen: user.totp_secret?.length }, 'TOTP verification failed during MFA enable');
+      error(res, '验证码错误，请确认手机时间与服务器时间一致后重新扫码', 1, 400);
       return;
     }
 
@@ -429,7 +456,9 @@ router.post('/mfa/enable', authenticate, validate(mfaEnableSchema), async (req: 
       targetId: userId,
     });
 
-    success(res, { recoveryCodes }, 'MFA 已启用，请妥善保管恢复码');
+    // Issue new full token so user doesn't need to re-login
+    const token = generateToken(userId, req.user!.username, req.user!.role);
+    success(res, { recoveryCodes, token }, 'MFA 已启用，请妥善保管恢复码');
   } catch (err: any) {
     error(res, 'MFA 启用失败: ' + err.message, 1, 500);
   }
@@ -463,7 +492,7 @@ router.post('/mfa/disable', authenticate, validate(z.object({ password: z.string
     }
 
     await pool.query(
-      'UPDATE users SET mfa_enabled = 0, totp_secret = NULL, mfa_recovery = NULL WHERE id = ?',
+      'UPDATE users SET mfa_enabled = 0, mfa_method = NULL, totp_secret = NULL, mfa_recovery = NULL WHERE id = ?',
       [userId]
     );
 
@@ -637,6 +666,148 @@ router.post('/change-password', authenticate, validate(changePasswordSchema), as
     await notificationService.create(userId, 'password_changed', (req as any).ip);
 
     success(res, null, '密码修改成功');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
+// ═══════════════════ Email MFA ═══════════════════
+
+const emailMfaSchema = z.object({
+  session_token: z.string().min(1),
+  code: z.string().length(6),
+});
+
+// POST /api/auth/mfa/email/verify
+router.post('/mfa/email/verify', loginLimiter, validate(emailMfaSchema), async (req: Request, res: Response) => {
+  try {
+    const { session_token, code } = req.body;
+    const [rows] = await pool.query<any[]>(
+      `SELECT * FROM email_mfa_codes WHERE session_token = ? AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1`,
+      [session_token]
+    );
+    if (rows.length === 0) { error(res, '验证码已过期或无效', 1, 401); return; }
+    const record = rows[0];
+
+    if (record.attempts >= 3) {
+      await pool.query('DELETE FROM email_mfa_codes WHERE id = ?', [record.id]);
+      error(res, '验证码尝试次数过多，请重新获取', 1, 401);
+      return;
+    }
+
+    const valid = await bcrypt.compare(code, record.code_hash);
+    if (!valid) {
+      await pool.query('UPDATE email_mfa_codes SET attempts = attempts + 1 WHERE id = ?', [record.id]);
+      const remaining = 2 - record.attempts;
+      error(res, `验证码错误，剩余 ${remaining} 次尝试`, 1, 401);
+      return;
+    }
+
+    // Code verified — clean up and issue JWT
+    await pool.query('DELETE FROM email_mfa_codes WHERE id = ?', [record.id]);
+    const [users] = await pool.query<any[]>('SELECT * FROM users WHERE id = ?', [record.user_id]);
+    const user = users[0];
+    await pool.query('UPDATE users SET login_fails = 0, locked_until = NULL, last_login = NOW() WHERE id = ?', [user.id]);
+    const token = generateToken(user.id, user.username, user.role);
+
+    await pool.query('INSERT INTO login_logs (user_id, username, ip, user_agent, result, mfa_used) VALUES (?, ?, ?, ?, ?, 1)',
+      [user.id, user.username, auditFromReq(req).ip, auditFromReq(req).userAgent, 'success']);
+    await recordAudit({ userId: user.id, username: user.username, action: 'login', ip: auditFromReq(req).ip || undefined, userAgent: auditFromReq(req).userAgent || undefined });
+
+    success(res, { token, user: sanitizeUser(user) }, '邮件验证码确认成功');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
+// POST /api/auth/mfa/email/enable — start email MFA setup (send code)
+router.post('/mfa/email/enable', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const [rows] = await pool.query<any[]>('SELECT email, mfa_enabled FROM users WHERE id = ?', [userId]);
+    if (rows.length === 0) { error(res, '用户不存在', 1, 404); return; }
+    if (rows[0].mfa_enabled) { error(res, 'MFA 已启用，请先禁用再重新设置', 1, 400); return; }
+    const email = rows[0].email;
+    if (!email) { error(res, '请先在个人设置中绑定邮箱', 1, 400); return; }
+
+    const { code, error: sendError } = await emailService.sendCode(email);
+    if (sendError || !code) { error(res, '验证码发送失败: ' + (sendError || 'unknown'), 1, 500); return; }
+
+    const codeHash = await bcrypt.hash(code, 10);
+    // Store temp code for verification
+    await pool.query('DELETE FROM email_mfa_codes WHERE user_id = ?', [userId]);
+    await pool.query(
+      `INSERT INTO email_mfa_codes (user_id, code_hash, email, expires_at, session_token) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE), ?)`,
+      [userId, codeHash, email, 'mfa_setup_' + userId]
+    );
+
+    success(res, { email_hint: email.replace(/(.{2}).*(@.*)/, '$1***$2') }, '验证码已发送');
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+
+// POST /api/auth/mfa/email/enable/verify — verify email code and enable
+router.post('/mfa/email/enable/verify', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const { code } = req.body;
+    if (!code || code.length !== 6) { error(res, '请输入 6 位验证码', 1, 400); return; }
+
+    const [rows] = await pool.query<any[]>(
+      `SELECT * FROM email_mfa_codes WHERE user_id = ? AND session_token = ? AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1`,
+      [userId, 'mfa_setup_' + userId]
+    );
+    if (rows.length === 0) { error(res, '验证码已过期或未发送', 1, 400); return; }
+
+    const valid = await bcrypt.compare(code, rows[0].code_hash);
+    if (!valid) { error(res, '验证码错误', 1, 400); return; }
+
+    await pool.query('DELETE FROM email_mfa_codes WHERE user_id = ?', [userId]);
+
+    // Generate recovery codes
+    const codes = Array.from({ length: 6 }, () => crypto.randomBytes(4).toString('hex').toUpperCase());
+    const hashedCodes = await Promise.all(codes.map(c => bcrypt.hash(c, 10)));
+
+    await pool.query(
+      'UPDATE users SET mfa_enabled = 1, mfa_method = ?, mfa_recovery = ? WHERE id = ?',
+      ['email', JSON.stringify(hashedCodes), userId]
+    );
+
+    success(res, { recoveryCodes: codes }, '邮箱 MFA 已启用');
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+
+// POST /api/auth/mfa/email/resend
+router.post('/mfa/email/resend', loginLimiter, async (req: Request, res: Response) => {
+  try {
+    const { session_token } = req.body;
+    const [rows] = await pool.query<any[]>(
+      `SELECT * FROM email_mfa_codes WHERE session_token = ? ORDER BY created_at DESC LIMIT 1`,
+      [session_token]
+    );
+    if (rows.length === 0) { error(res, '会话无效', 1, 400); return; }
+    const record = rows[0];
+
+    // Rate limit: 3 codes per 15 min
+    const [countRows] = await pool.query<any[]>(
+      `SELECT COUNT(*) as cnt FROM email_mfa_codes WHERE user_id = ? AND created_at > DATE_SUB(NOW(), INTERVAL 15 MINUTE)`,
+      [record.user_id]
+    );
+    if (countRows[0].cnt >= 3) {
+      error(res, '验证码请求过于频繁，请 15 分钟后重试', 1, 429);
+      return;
+    }
+
+    await pool.query('DELETE FROM email_mfa_codes WHERE session_token = ?', [session_token]);
+    const { code, error: sendError } = await emailService.sendCode(record.email);
+    if (sendError || !code) { error(res, '邮件发送失败: ' + (sendError || 'unknown'), 1, 500); return; }
+
+    const codeHash = await bcrypt.hash(code, 10);
+    await pool.query(
+      `INSERT INTO email_mfa_codes (user_id, code_hash, email, expires_at, session_token) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE), ?)`,
+      [record.user_id, codeHash, record.email, session_token]
+    );
+
+    success(res, null, '验证码已重新发送');
   } catch (err: any) {
     error(res, err.message, 1, 500);
   }

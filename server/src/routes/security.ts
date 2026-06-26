@@ -143,6 +143,30 @@ router.patch('/ip-whitelist/:id', authenticate, requireAdmin, async (req: Reques
   }
 });
 
+// ═══════════════════ SMTP Config ═══════════════════
+
+// GET /api/security/smtp-config
+router.get('/smtp-config', authenticate, requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const config = await passwordPolicyService.getSmtpConfig();
+    const { password, ...safe } = config;
+    success(res, { ...safe, configured: !!config.host });
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
+// PUT /api/security/smtp-config
+router.put('/smtp-config', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const config = await passwordPolicyService.updateSmtpConfig(req.body);
+    const { password, ...safe } = config;
+    success(res, { ...safe, configured: true }, 'SMTP 配置已保存');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
 // ═══════════════════ Notifications ═══════════════════
 
 // GET /api/notifications

@@ -7,6 +7,7 @@ import {
   SecuredIcon,
   LockOnIcon,
   InternetIcon,
+  MailIcon,
   TimeIcon,
 } from 'tdesign-icons-react';
 import { securityService, PasswordPolicy, IpWhitelistEntry } from '../services/securityService';
@@ -137,6 +138,26 @@ export const SecuritySettings: React.FC = () => {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [wlForm, setWlForm] = useState({ network: '', mask: '24', description: '' });
   const [addingWl, setAddingWl] = useState(false);
+  const [smtpForm, setSmtpForm] = useState({ host: '', port: 587, user: '', password: '', from_address: '' });
+  const [smtpSaving, setSmtpSaving] = useState(false);
+
+  const loadSmtp = useCallback(async () => {
+    try {
+      const res = await securityService.getSmtpConfig();
+      if (res.code === 0 && res.data) setSmtpForm({ ...smtpForm, ...res.data, password: '' });
+    } catch { /* ignore */ }
+  }, []);
+
+  const saveSmtp = async () => {
+    if (!smtpForm.host) { MessagePlugin.warning('请输入 SMTP 服务器'); return; }
+    setSmtpSaving(true);
+    try {
+      const res = await securityService.updateSmtpConfig(smtpForm);
+      if (res.code === 0) { MessagePlugin.success('SMTP 配置已保存'); setSmtpForm(p => ({ ...p, password: '' })); }
+      else MessagePlugin.error(res.message || '保存失败');
+    } catch { MessagePlugin.error('保存失败'); }
+    finally { setSmtpSaving(false); }
+  };
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -160,7 +181,8 @@ export const SecuritySettings: React.FC = () => {
 
   useEffect(() => {
     load();
-  }, [load]);
+    loadSmtp();
+  }, [load, loadSmtp]);
 
   const update = async (k: keyof PasswordPolicy, v: boolean | number) => {
     if (policy[k] === v) return;
@@ -445,6 +467,13 @@ export const SecuritySettings: React.FC = () => {
                 onChange={(v) => update('force_change_on_create', v)}
               />
             </SettingRow>
+            <SettingRow label="强制 MFA 认证" desc="用户必须绑定多因素认证后才能使用系统功能">
+              <RecordingSwitch
+                size="small"
+                value={policy.require_mfa}
+                onChange={(v) => update('require_mfa', v)}
+              />
+            </SettingRow>
           </div>
 
           <div className="content-card overflow-hidden">
@@ -507,6 +536,38 @@ export const SecuritySettings: React.FC = () => {
             onChange={(v) => update('require_mfa', v)}
           />
         </SettingRow>
+      </div>
+
+      {/* SMTP config */}
+      <div className="content-card overflow-hidden mt-5">
+        <PanelHeader
+          icon={<MailIcon size="18px" />}
+          title="邮件服务 (SMTP)"
+          desc="配置后可使用邮箱验证码 MFA。留空则不启用。"
+        />
+        <div className="section-body border-b border-[var(--border-subtle)]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+            <div>
+              <div className="info-label mb-1.5">SMTP 服务器</div>
+              <Input value={smtpForm.host} onChange={v => setSmtpForm(p => ({ ...p, host: v }))} placeholder="smtp.qq.com" />
+            </div>
+            <div>
+              <div className="info-label mb-1.5">端口</div>
+              <Input value={String(smtpForm.port)} onChange={v => setSmtpForm(p => ({ ...p, port: parseInt(v) || 587 }))} placeholder="587" style={{ width: 100 }} />
+            </div>
+            <div>
+              <div className="info-label mb-1.5">发件邮箱 (也是登录账号)</div>
+              <Input value={smtpForm.from_address} onChange={v => setSmtpForm(p => ({ ...p, from_address: v, user: v }))} placeholder="bastion@qq.com" />
+            </div>
+            <div>
+              <div className="info-label mb-1.5">授权码</div>
+              <Input type="password" value={smtpForm.password} onChange={v => setSmtpForm(p => ({ ...p, password: v }))} placeholder="QQ邮箱需填授权码" />
+            </div>
+            <div>
+              <Button theme="primary" loading={smtpSaving} onClick={saveSmtp}>保存</Button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* IP whitelist */}

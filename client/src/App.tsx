@@ -18,8 +18,8 @@ import { ForcePasswordChange } from './pages/ForcePasswordChange';
 import { SecuritySettings } from './pages/SecuritySettings';
 import { NotFound } from './pages/NotFound';
 
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { token, _hasHydrated } = useAuthStore();
+const ProtectedRoute: React.FC<{ children: React.ReactNode; allowMfaSetup?: boolean }> = ({ children, allowMfaSetup }) => {
+  const { token, user, _hasHydrated } = useAuthStore();
 
   if (!_hasHydrated) {
     return <LoadingSkeleton fullScreen />;
@@ -27,6 +27,12 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
   if (!token) {
     return <Navigate to="/login" replace />;
+  }
+
+  // Force MFA setup if system requires it and user hasn't set it up
+  const needsMfaSetup = (user as any)?.require_mfa_setup;
+  if (needsMfaSetup && !allowMfaSetup && window.location.pathname !== '/profile') {
+    return <Navigate to="/profile?setupMfa=1" replace />;
   }
 
   return <>{children}</>;

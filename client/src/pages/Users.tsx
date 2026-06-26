@@ -302,7 +302,6 @@ export const Users: React.FC = () => {
             <Input
               value={formData.username}
               onChange={(v) => setFormData({ ...formData, username: v })}
-              disabled={!!editingUser}
               prefixIcon={<UserIcon />}
               placeholder="字母开头，3-32位"
             />
