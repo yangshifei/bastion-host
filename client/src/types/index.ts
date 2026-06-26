@@ -149,6 +149,7 @@ export interface LoginResponse {
   token?: string;
   user?: SafeUser;
   requireMfa?: boolean;
+  require_email_mfa?: boolean;
   require_password_change?: boolean;
   require_mfa_setup?: boolean;
   mfaToken?: string;

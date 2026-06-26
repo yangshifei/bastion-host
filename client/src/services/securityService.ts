@@ -76,4 +76,12 @@ export const securityService = {
   getCaptcha(): Promise<ApiResponse<{ challenge_id: string; question: string; expires_in: number }>> {
     return api.get('/auth/captcha').then(r => r.data);
   },
+
+  getSmtpConfig(): Promise<ApiResponse<{ host: string; port: number; user: string; from_address: string; configured: boolean }>> {
+    return api.get('/security/smtp-config').then(r => r.data);
+  },
+
+  updateSmtpConfig(data: any): Promise<ApiResponse<any>> {
+    return api.put('/security/smtp-config', data).then(r => r.data);
+  },
 };

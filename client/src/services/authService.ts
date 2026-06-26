@@ -30,6 +30,14 @@ export const authService = {
     return api.post('/auth/mfa/disable', { password }).then(r => r.data);
   },
 
+  emailMfaVerify(sessionToken: string, code: string): Promise<ApiResponse<LoginResponse>> {
+    return api.post('/auth/mfa/email/verify', { session_token: sessionToken, code }).then(r => r.data);
+  },
+
+  emailMfaResend(sessionToken: string): Promise<ApiResponse<any>> {
+    return api.post('/auth/mfa/email/resend', { session_token: sessionToken }).then(r => r.data);
+  },
+
   mfaRecovery(username: string, recoveryCode: string): Promise<ApiResponse<LoginResponse>> {
     return api.post('/auth/mfa/recovery', { username, recoveryCode }).then(r => r.data);
   },

@@ -26,12 +26,14 @@ export const Login: React.FC = () => {
   const { login: setAuth, token } = useAuthStore();
   const isAuthenticated = !!token;
   const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<'login' | 'mfa' | 'recovery'>('login');
+  const [step, setStep] = useState<'login' | 'mfa' | 'emailMfa' | 'recovery'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [mfaCode, setMfaCode] = useState('');
   const [mfaToken, setMfaToken] = useState('');
   const [recoveryCode, setRecoveryCode] = useState('');
+  const [emailSessionToken, setEmailSessionToken] = useState('');
+  const [emailHint, setEmailHint] = useState('');
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [captchaId, setCaptchaId] = useState('');
   const [captchaQuestion, setCaptchaQuestion] = useState('');
@@ -71,6 +73,10 @@ export const Login: React.FC = () => {
         if (data.requireMfa && data.mfaToken) {
           setMfaToken(data.mfaToken);
           setStep('mfa');
+        } else if (data.require_email_mfa && (data as any).session_token) {
+          setEmailSessionToken((data as any).session_token);
+          setEmailHint((data as any).email_hint || '');
+          setStep('emailMfa');
         } else if (data.require_password_change && data.token && data.user) {
           setAuth(data.token, data.user);
           navigate('/force-change-password');
@@ -138,12 +144,46 @@ export const Login: React.FC = () => {
     }
   };
 
+  const handleEmailVerify = async () => {
+    if (!mfaCode || mfaCode.length !== 6) {
+      MessagePlugin.warning('请输入 6 位验证码');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await authService.emailMfaVerify(emailSessionToken, mfaCode);
+      if (res.code === 0 && res.data?.token && res.data?.user) {
+        setAuth(res.data.token, res.data.user);
+        MessagePlugin.success('验证成功');
+        navigate('/dashboard');
+      } else {
+        MessagePlugin.error(res.message || '验证失败');
+      }
+    } catch (err: any) {
+      MessagePlugin.error(err.response?.data?.message || '验证失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEmailResend = async () => {
+    try {
+      const res = await authService.emailMfaResend(emailSessionToken);
+      if (res.code === 0) MessagePlugin.success('验证码已重新发送');
+      else MessagePlugin.error(res.message || '发送失败');
+    } catch {
+      MessagePlugin.error('发送失败');
+    }
+  };
+
   const stepTitle =
-    step === 'login' ? '欢迎回来' : step === 'mfa' ? '两步验证' : '恢复登录';
+    step === 'login' ? '欢迎回来' : step === 'mfa' ? '两步验证' : step === 'emailMfa' ? '邮箱验证' : '恢复登录';
 
   const stepDesc =
     step === 'login'
       ? '登录以访问堡垒机控制台'
+      : step === 'emailMfa'
+      ? '请输入发送到您邮箱的验证码'
       : step === 'mfa'
         ? '请输入 Authenticator 中的 6 位验证码'
         : '使用备用恢复码登录（每个恢复码仅能使用一次）';
@@ -299,6 +339,34 @@ export const Login: React.FC = () => {
                       setMfaCode('');
                     }}
                   >
+                    返回登录
+                  </Button>
+                </div>
+              </Form>
+            )}
+
+            {step === 'emailMfa' && (
+              <Form labelAlign="top" onSubmit={handleEmailVerify}>
+                <div className="mb-5 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-center">
+                  <p className="text-sm text-slate-300">验证码已发送至</p>
+                  <p className="text-base font-semibold text-blue-400 mt-1">{emailHint}</p>
+                </div>
+                <FormItem label="邮箱验证码">
+                  <Input
+                    value={mfaCode}
+                    onChange={setMfaCode}
+                    placeholder="请输入 6 位验证码"
+                    maxlength={6}
+                    size="large"
+                    onEnter={handleEmailVerify}
+                  />
+                </FormItem>
+                <Button theme="primary" block size="large" loading={loading} onClick={handleEmailVerify}>
+                  验证
+                </Button>
+                <div className="text-center mt-4 flex justify-center gap-4">
+                  <Button variant="text" size="small" onClick={handleEmailResend}>重新发送</Button>
+                  <Button variant="text" size="small" onClick={() => { setStep('login'); setMfaCode(''); }}>
                     返回登录
                   </Button>
                 </div>
