@@ -62,7 +62,13 @@ export const MfaSetup: React.FC<MfaSetupProps> = ({ autoOpen = false, onEnabled 
       <Dialog visible={visible} header="MFA 多因素认证设置" width={480} onClose={handleClose} footer={null}>
         {error && <Alert theme="error" message={error} className="mb-4" />}
 
-        {state === 'idle' && <p className="text-slate-400">加载中...</p>}
+        {state === 'idle' && !error && <p className="text-slate-400">加载中...</p>}
+        {state === 'idle' && error && (
+          <div className="text-center">
+            <p className="text-amber-400 mb-4">{error}</p>
+            <Button variant="outline" onClick={handleClose}>关闭</Button>
+          </div>
+        )}
 
         {state === 'setup' && (
           <div className="text-center">
