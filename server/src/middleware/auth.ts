@@ -34,8 +34,8 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
 
     // Reject MFA-setup tokens for non-MFA-setup endpoints
     if (decoded.scope === 'mfa_setup') {
-      const path = req.path || '';
-      const allowed = path.startsWith('/auth/') || path.startsWith('/profile') || path === '/auth/me';
+      const fullPath = req.originalUrl || req.url || '';
+      const allowed = fullPath.includes('/auth/') || fullPath.includes('/profile');
       if (!allowed) {
         res.status(403).json({ code: 403, message: '请先完成 MFA 设置' });
         return;
