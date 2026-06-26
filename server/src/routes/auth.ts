@@ -313,7 +313,7 @@ router.post('/mfa/verify', loginLimiter, validate(mfaVerifySchema), async (req: 
       secret: user.totp_secret,
       encoding: 'base32',
       token: code,
-      window: 1, // ±1 interval = 90s total window
+      window: 2, // ±2 intervals = 150s tolerance for clock skew // ±1 interval = 90s total window
     });
 
     if (!verified) {
@@ -417,7 +417,7 @@ router.post('/mfa/enable', authenticate, validate(mfaEnableSchema), async (req: 
       secret: user.totp_secret,
       encoding: 'base32',
       token: code,
-      window: 1,
+      window: 2, // ±2 intervals = 150s tolerance for clock skew
     });
 
     if (!verified) {
