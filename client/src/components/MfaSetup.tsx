@@ -16,28 +16,28 @@ export const MfaSetup: React.FC<MfaSetupProps> = ({ autoOpen = false, onEnabled 
   const [qrDataUrl, setQrDataUrl] = useState('');
   const { state, secret, otpauthUrl, recoveryCodes, error, loading, startSetup, verifyAndEnable, reset } = useMfa();
 
-  const handleOpen = async () => {
+  const handleOpen = () => {
     setVisible(true);
-    await startSetup();
-    if (otpauthUrl) {
-      try {
-        const url = await QRCode.toDataURL(otpauthUrl, { width: 200, margin: 2 });
-        setQrDataUrl(url);
-      } catch { /* ignore */ }
-    }
+    setQrDataUrl('');
+    startSetup();
   };
 
+  // Generate QR code when otpauthUrl changes
   useEffect(() => {
-    if (autoOpen) {
-      handleOpen();
+    if (otpauthUrl) {
+      QRCode.toDataURL(otpauthUrl, { width: 200, margin: 2 })
+        .then(setQrDataUrl)
+        .catch(() => {});
     }
+  }, [otpauthUrl]);
+
+  useEffect(() => {
+    if (autoOpen) handleOpen();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoOpen]);
 
   useEffect(() => {
-    if (state === 'enabled') {
-      onEnabled?.();
-    }
+    if (state === 'enabled') onEnabled?.();
   }, [state, onEnabled]);
 
   const handleClose = () => {
