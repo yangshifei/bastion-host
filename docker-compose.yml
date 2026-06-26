@@ -3,6 +3,7 @@ services:
     image: mysql:8.0
     container_name: bastion-mysql
     environment:
+      TZ: Asia/Shanghai
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root123}
       MYSQL_DATABASE: bastion_host
       MYSQL_USER: bastion
@@ -22,6 +23,8 @@ services:
   guacd:
     image: guacamole/guacd:latest
     container_name: bastion-guacd
+    environment:
+      TZ: Asia/Shanghai
     ports:
       - "4822:4822"
     volumes:
@@ -36,6 +39,7 @@ services:
     ports:
       - "3001:3001"
     environment:
+      TZ: Asia/Shanghai
       NODE_ENV: production
       PORT: 3001
       DB_HOST: mysql
@@ -64,6 +68,8 @@ services:
   nginx:
     image: nginx:alpine
     container_name: bastion-nginx
+    environment:
+      TZ: Asia/Shanghai
     ports:
       - "80:80"
     volumes:
