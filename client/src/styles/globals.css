@@ -479,13 +479,14 @@ html[theme-mode='light'] .t-table th { background: rgba(0,0,0,0.02) !important; 
 .replay-player .t-slider__track {
   height: 5px !important;
 }
-/* Asset group row background */
-.asset-group-row td {
-  background: var(--bg-surface) !important;
-  border-bottom-color: var(--border-default) !important;
-}
-.asset-group-row:hover td {
+/* Asset group row background — parent rows with tree expand icon */
+.t-table__row--level-0 td {
   background: var(--bg-elevated) !important;
+  border-bottom-color: var(--border-default) !important;
+  font-weight: 500;
+}
+.t-table__row--level-0:hover td {
+  background: rgba(6, 182, 212, 0.04) !important;
 }
 
 .replay-player .t-slider__button {

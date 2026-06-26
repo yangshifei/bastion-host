@@ -427,7 +427,6 @@ export const Assets: React.FC = () => {
           rowKey="rowKey"
           loading={loading}
           hover
-          rowClassName={({ row }: any) => isAssetGroupRow(row) ? 'asset-group-row' : ''}
           tree={{
             childrenKey: 'children',
             treeNodeColumnIndex: 0,
