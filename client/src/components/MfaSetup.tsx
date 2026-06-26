@@ -3,6 +3,7 @@ import { Dialog, Form, Input, Button, MessagePlugin, Alert } from 'tdesign-react
 import QRCode from 'qrcode';
 import { useMfa } from '../hooks/useMfa';
 import { authService } from '../services/authService';
+import { useAuthStore } from '../stores/authStore';
 
 const { FormItem } = Form;
 

@@ -456,7 +456,9 @@ router.post('/mfa/enable', authenticate, validate(mfaEnableSchema), async (req: 
       targetId: userId,
     });
 
-    success(res, { recoveryCodes }, 'MFA 已启用，请妥善保管恢复码');
+    // Issue new full token so user doesn't need to re-login
+    const token = generateToken(userId, req.user!.username, req.user!.role);
+    success(res, { recoveryCodes, token }, 'MFA 已启用，请妥善保管恢复码');
   } catch (err: any) {
     error(res, 'MFA 启用失败: ' + err.message, 1, 500);
   }

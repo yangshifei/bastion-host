@@ -40,10 +40,17 @@ export function useMfa() {
       if (res.code === 0 && res.data) {
         setRecoveryCodes(res.data.recoveryCodes);
         setState('enabled');
-        // Refresh user info
-        const meRes = await authService.getMe();
-        if (meRes.code === 0 && meRes.data) {
-          useAuthStore.getState().setUser(meRes.data);
+        // Upgrade restricted token to full token after MFA setup
+        if (res.data.token) {
+          const meRes = await authService.getMe();
+          if (meRes.code === 0 && meRes.data) {
+            useAuthStore.getState().login(res.data.token, meRes.data);
+          }
+        } else {
+          const meRes = await authService.getMe();
+          if (meRes.code === 0 && meRes.data) {
+            useAuthStore.getState().setUser(meRes.data);
+          }
         }
       } else {
         setError(res.message);

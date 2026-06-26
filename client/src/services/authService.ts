@@ -22,7 +22,7 @@ export const authService = {
     return api.post('/auth/mfa/setup').then(r => r.data);
   },
 
-  mfaEnable(code: string): Promise<ApiResponse<{ recoveryCodes: string[] }>> {
+  mfaEnable(code: string): Promise<ApiResponse<{ recoveryCodes: string[]; token?: string }>> {
     return api.post('/auth/mfa/enable', { code }).then(r => r.data);
   },
 
