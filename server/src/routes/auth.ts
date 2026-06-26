@@ -483,7 +483,7 @@ router.post('/mfa/disable', authenticate, validate(z.object({ password: z.string
     }
 
     await pool.query(
-      'UPDATE users SET mfa_enabled = 0, totp_secret = NULL, mfa_recovery = NULL WHERE id = ?',
+      'UPDATE users SET mfa_enabled = 0, mfa_method = NULL, totp_secret = NULL, mfa_recovery = NULL WHERE id = ?',
       [userId]
     );
 
