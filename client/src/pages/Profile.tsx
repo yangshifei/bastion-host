@@ -72,26 +72,45 @@ const DisableMfaForm: React.FC<{ onDisabled: () => void }> = ({ onDisabled }) =>
 const RecoveryCodeViewer: React.FC = () => {
   const [password, setPassword] = useState('');
   const [remaining, setRemaining] = useState<number | null>(null);
+  const [newCodes, setNewCodes] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [show, setShow] = useState(false);
 
   if (!show) {
-    return <Button variant="outline" size="small" onClick={() => setShow(true)}>查看恢复码</Button>;
+    return <Button variant="outline" size="small" onClick={() => setShow(true)}>恢复码</Button>;
+  }
+
+  // Show newly generated codes
+  if (newCodes) {
+    return (
+      <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 space-y-3">
+        <p className="text-xs text-amber-400 font-medium">新恢复码已生成，请立即保存。关闭后无法再次查看：</p>
+        <div className="grid grid-cols-2 gap-2">
+          {newCodes.map((c, i) => <code key={i} className="text-xs text-cyan-400 bg-black/30 px-2 py-1 rounded">{c}</code>)}
+        </div>
+        <Button size="small" onClick={() => { setShow(false); setNewCodes(null); setPassword(''); }}>我已保存，关闭</Button>
+      </div>
+    );
   }
 
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+    <div className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.02] border border-white/[0.06] flex-wrap">
       {remaining === null ? (
         <>
           <Input type="password" value={password} onChange={setPassword}
-            placeholder="输入密码确认" prefixIcon={<LockOnIcon />} style={{ width: 180 }}
-            onEnter={() => handleView()} />
+            placeholder="输入密码确认" prefixIcon={<LockOnIcon />} style={{ width: 160 }}
+            onEnter={handleView} />
           <Button size="small" loading={loading} onClick={handleView}>确认</Button>
           <Button variant="text" size="small" onClick={() => { setShow(false); setPassword(''); }}>取消</Button>
         </>
       ) : (
         <>
-          <span className="text-sm text-slate-300">剩余 <b className="text-cyan-400">{remaining}</b> 个可用恢复码</span>
+          <span className="text-sm text-slate-300">
+            剩余 <b className="text-cyan-400">{remaining}</b> 个恢复码
+            {remaining < 4 && <span className="text-amber-400 ml-2 text-xs">建议重新生成</span>}
+          </span>
+          <Button size="small" variant="outline" theme="warning" loading={regenerating} onClick={handleRegenerate}>重新生成</Button>
           <Button variant="text" size="small" onClick={() => { setShow(false); setRemaining(null); setPassword(''); }}>关闭</Button>
         </>
       )}
@@ -107,6 +126,19 @@ const RecoveryCodeViewer: React.FC = () => {
       else MessagePlugin.error(res.message || '验证失败');
     } catch { MessagePlugin.error('验证失败'); }
     finally { setLoading(false); setPassword(''); }
+  }
+
+  async function handleRegenerate() {
+    if (!password) { MessagePlugin.warning('请输入密码'); return; }
+    setRegenerating(true);
+    try {
+      const res = await authService.mfaRecoveryRegenerate(password);
+      if (res.code === 0 && res.data?.recoveryCodes) {
+        setNewCodes(res.data.recoveryCodes);
+        setRemaining(res.data.recoveryCodes.length);
+      } else MessagePlugin.error(res.message || '生成失败');
+    } catch (err: any) { MessagePlugin.error(err?.response?.data?.message || '生成失败'); }
+    finally { setRegenerating(false); }
   }
 };
 

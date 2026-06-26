@@ -50,6 +50,10 @@ export const authService = {
     return api.post('/auth/mfa/recovery/view', { password }).then(r => r.data);
   },
 
+  mfaRecoveryRegenerate(password: string): Promise<ApiResponse<{ recoveryCodes: string[] }>> {
+    return api.post('/auth/mfa/recovery/regenerate', { password }).then(r => r.data);
+  },
+
   mfaRecovery(username: string, recoveryCode: string): Promise<ApiResponse<LoginResponse>> {
     return api.post('/auth/mfa/recovery', { username, recoveryCode }).then(r => r.data);
   },
