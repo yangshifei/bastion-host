@@ -554,7 +554,22 @@ router.post('/mfa/recovery', loginLimiter, validate(mfaRecoverySchema), async (r
     }
 
     if (matchedIndex === -1) {
-      error(res, '恢复码无效', 1, 401);
+      // Track failed recovery attempts — lock account after 5
+      const fails = (user.login_fails || 0) + 1;
+      const lockedUntil = fails >= 5
+        ? new Date(Date.now() + 15 * 60 * 1000)
+        : null;
+      await pool.query('UPDATE users SET login_fails = ?, locked_until = ? WHERE id = ?',
+        [fails, lockedUntil, user.id]);
+      await pool.query(
+        'INSERT INTO login_logs (user_id, username, ip, user_agent, result) VALUES (?, ?, ?, ?, ?)',
+        [user.id, username, ip, userAgent, 'fail_mfa']
+      );
+      if (lockedUntil) {
+        error(res, '恢复码尝试次数过多，账号已锁定 15 分钟', 1, 401);
+      } else {
+        error(res, `恢复码无效，剩余 ${5 - fails} 次尝试`, 1, 401);
+      }
       return;
     }
 
