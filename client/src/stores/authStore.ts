@@ -11,6 +11,7 @@ interface AuthState {
 interface AuthActions {
   login: (token: string, user: SafeUser) => void;
   logout: () => void;
+  setToken: (token: string) => void;
   setUser: (user: SafeUser) => void;
   setHydrated: () => void;
 }
@@ -26,6 +27,7 @@ export const useAuthStore = create<AuthStore>()(
 
       login: (token: string, user: SafeUser) => set({ token, user }),
       logout: () => set({ token: null, user: null }),
+      setToken: (token: string) => set({ token }),
       setUser: (user: SafeUser) => set({ user }),
       setHydrated: () => set({ _hasHydrated: true }),
     }),

@@ -464,6 +464,55 @@ router.post('/mfa/enable', authenticate, validate(mfaEnableSchema), async (req: 
   }
 });
 
+// ---- POST /api/auth/mfa/recovery/view ----
+router.post('/mfa/recovery/view', authenticate, validate(z.object({ password: z.string().min(1) })), async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const [rows] = await pool.query<any[]>(
+      'SELECT password_hash, mfa_recovery, mfa_enabled FROM users WHERE id = ? AND deleted_at IS NULL',
+      [userId]
+    );
+    if (rows.length === 0 || !rows[0].mfa_enabled) { error(res, 'MFA 未启用', 1, 400); return; }
+
+    const valid = await bcrypt.compare(req.body.password, rows[0].password_hash);
+    if (!valid) { error(res, '密码错误', 1, 401); return; }
+
+    const codes = rows[0].mfa_recovery;
+    if (!codes) { error(res, '没有恢复码记录', 1, 400); return; }
+
+    // Return count of remaining codes (NOT the codes themselves — those are hashed)
+    const parsed = typeof codes === 'string' ? JSON.parse(codes) : codes;
+    success(res, { remaining: Array.isArray(parsed) ? parsed.length : 6 }, `还有 ${Array.isArray(parsed) ? parsed.length : 6} 个恢复码可用`);
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+
+// ---- POST /api/auth/mfa/recovery/regenerate ----
+router.post('/mfa/recovery/regenerate', authenticate, validate(z.object({ password: z.string().min(1) })), async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const [rows] = await pool.query<any[]>(
+      'SELECT password_hash, mfa_enabled FROM users WHERE id = ? AND deleted_at IS NULL',
+      [userId]
+    );
+    if (rows.length === 0 || !rows[0].mfa_enabled) { error(res, 'MFA 未启用', 1, 400); return; }
+
+    const valid = await bcrypt.compare(req.body.password, rows[0].password_hash);
+    if (!valid) { error(res, '密码错误', 1, 401); return; }
+
+    // Generate new recovery codes (8 codes, 10 chars)
+    const codes: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      codes.push(Array.from({ length: 10 }, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[Math.floor(Math.random() * 36)]).join(''));
+    }
+    const hashedCodes = await Promise.all(codes.map(c => bcrypt.hash(c, 8)));
+    await pool.query('UPDATE users SET mfa_recovery = ? WHERE id = ?', [JSON.stringify(hashedCodes), userId]);
+
+    await recordAudit({ userId, username: req.user!.username, action: 'mfa_recovery_regenerate', targetType: 'user', targetId: userId });
+
+    success(res, { recoveryCodes: codes }, '恢复码已重新生成，请妥善保管');
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+
 // ---- POST /api/auth/mfa/disable ----
 router.post('/mfa/disable', authenticate, validate(z.object({ password: z.string().min(1) })), async (req: Request, res: Response) => {
   try {
@@ -554,7 +603,22 @@ router.post('/mfa/recovery', loginLimiter, validate(mfaRecoverySchema), async (r
     }
 
     if (matchedIndex === -1) {
-      error(res, '恢复码无效', 1, 401);
+      // Track failed recovery attempts — lock account after 5
+      const fails = (user.login_fails || 0) + 1;
+      const lockedUntil = fails >= 5
+        ? new Date(Date.now() + 15 * 60 * 1000)
+        : null;
+      await pool.query('UPDATE users SET login_fails = ?, locked_until = ? WHERE id = ?',
+        [fails, lockedUntil, user.id]);
+      await pool.query(
+        'INSERT INTO login_logs (user_id, username, ip, user_agent, result) VALUES (?, ?, ?, ?, ?)',
+        [user.id, username, ip, userAgent, 'fail_mfa']
+      );
+      if (lockedUntil) {
+        error(res, '恢复码尝试次数过多，账号已锁定 15 分钟', 1, 401);
+      } else {
+        error(res, `恢复码无效，剩余 ${5 - fails} 次尝试`, 1, 401);
+      }
       return;
     }
 

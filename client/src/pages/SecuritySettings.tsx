@@ -152,7 +152,7 @@ export const SecuritySettings: React.FC = () => {
     if (!smtpForm.host) { MessagePlugin.warning('请输入 SMTP 服务器'); return; }
     setSmtpSaving(true);
     try {
-      const res = await securityService.updateSmtpConfig(smtpForm);
+      const res = await securityService.updateSmtpConfig({ ...smtpForm, user: smtpForm.from_address });
       if (res.code === 0) { MessagePlugin.success('SMTP 配置已保存'); setSmtpForm(p => ({ ...p, password: '' })); }
       else MessagePlugin.error(res.message || '保存失败');
     } catch { MessagePlugin.error('保存失败'); }
@@ -467,13 +467,6 @@ export const SecuritySettings: React.FC = () => {
                 onChange={(v) => update('force_change_on_create', v)}
               />
             </SettingRow>
-            <SettingRow label="强制 MFA 认证" desc="用户必须绑定多因素认证后才能使用系统功能">
-              <RecordingSwitch
-                size="small"
-                value={policy.require_mfa}
-                onChange={(v) => update('require_mfa', v)}
-              />
-            </SettingRow>
           </div>
 
           <div className="content-card overflow-hidden">
@@ -538,7 +531,7 @@ export const SecuritySettings: React.FC = () => {
         </SettingRow>
       </div>
 
-      {/* SMTP config */}
+      {/* SMTP */}
       <div className="content-card overflow-hidden mt-5">
         <PanelHeader
           icon={<MailIcon size="18px" />}
@@ -546,7 +539,7 @@ export const SecuritySettings: React.FC = () => {
           desc="配置后可使用邮箱验证码 MFA。留空则不启用。"
         />
         <div className="section-body border-b border-[var(--border-subtle)]">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-end">
             <div>
               <div className="info-label mb-1.5">SMTP 服务器</div>
               <Input value={smtpForm.host} onChange={v => setSmtpForm(p => ({ ...p, host: v }))} placeholder="smtp.qq.com" />
@@ -561,7 +554,7 @@ export const SecuritySettings: React.FC = () => {
             </div>
             <div>
               <div className="info-label mb-1.5">授权码</div>
-              <Input type="password" value={smtpForm.password} onChange={v => setSmtpForm(p => ({ ...p, password: v }))} placeholder="QQ邮箱需填授权码" />
+              <Input type="password" value={smtpForm.password} onChange={v => setSmtpForm(p => ({ ...p, password: v }))} placeholder="留空不修改" />
             </div>
             <div>
               <Button theme="primary" loading={smtpSaving} onClick={saveSmtp}>保存</Button>
