@@ -213,7 +213,12 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req: Request, 
 
     // Global MFA policy: must enable MFA before full access
     if (policy.require_mfa && !user.mfa_enabled) {
-      const token = generateToken(user.id, user.username, user.role);
+      // Issue restricted token — only allows /auth/ and /profile endpoints
+      const token = jwt.sign(
+        { userId: user.id, username: user.username, role: user.role, scope: 'mfa_setup' },
+        config.jwt.secret,
+        { expiresIn: '30m' }
+      );
       success(res, { token, user: sanitizeUser(user), require_mfa_setup: true }, '请先启用 MFA');
       return;
     }

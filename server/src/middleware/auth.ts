@@ -8,6 +8,7 @@ export interface JwtPayload {
   username: string;
   role: string;
   type?: string; // 'mfa' for MFA intermediate token
+  scope?: string; // 'mfa_setup' for restricted MFA setup token
   iat?: number;
   exp?: number;
 }
@@ -29,6 +30,16 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
     if (decoded.type === 'mfa') {
       res.status(401).json({ code: 401, message: '需要完成 MFA 验证' });
       return;
+    }
+
+    // Reject MFA-setup tokens for non-MFA-setup endpoints
+    if (decoded.scope === 'mfa_setup') {
+      const path = req.path || '';
+      const allowed = path.startsWith('/auth/') || path.startsWith('/profile') || path === '/auth/me';
+      if (!allowed) {
+        res.status(403).json({ code: 403, message: '请先完成 MFA 设置' });
+        return;
+      }
     }
 
     req.user = {

@@ -467,6 +467,13 @@ export const SecuritySettings: React.FC = () => {
                 onChange={(v) => update('force_change_on_create', v)}
               />
             </SettingRow>
+            <SettingRow label="强制 MFA 认证" desc="用户必须绑定多因素认证后才能使用系统功能">
+              <RecordingSwitch
+                size="small"
+                value={policy.require_mfa}
+                onChange={(v) => update('require_mfa', v)}
+              />
+            </SettingRow>
           </div>
 
           <div className="content-card overflow-hidden">
