@@ -11,15 +11,16 @@ let _configHash = '';
 
 async function getTransporter(config: SmtpConfig): Promise<nodemailer.Transporter> {
   if (!config.host) throw new Error('SMTP 未配置');
-  const user = config.user || config.from_address; // fallback to from_address as user
-  if (!user) throw new Error('SMTP 账号未设置');
+  const user = config.user || config.from_address;
+  const pass = config.password;
+  if (!user || !pass) throw new Error(`SMTP 认证信息不完整 (user=${user ? 'yes' : 'no'}, pass=${pass ? 'yes' : 'no'})，请检查安全策略中 SMTP 配置`);
   const hash = `${config.host}:${config.port}:${user}`;
   if (_transporter && hash === _configHash) return _transporter;
   _transporter = nodemailer.createTransport({
     host: config.host,
     port: config.port,
     secure: config.secure || false,
-    auth: { user, pass: config.password || '' },
+    auth: { user, pass },
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 10000,
