@@ -60,7 +60,7 @@ export const MfaSetup: React.FC<MfaSetupProps> = ({ autoOpen = false, onEnabled 
       const res = await authService.emailMfaEnable();
       if (res.code === 0) { setEmailCodeSent(true); MessagePlugin.success('验证码已发送至您的邮箱'); }
       else MessagePlugin.error(res.message || '发送失败');
-    } catch { MessagePlugin.error('发送失败，请确认 SMTP 已配置且邮箱已设置'); }
+    } catch (err: any) { MessagePlugin.error(err?.response?.data?.message || err?.message || '发送失败'); }
   };
 
   const verifyEmailCode = async () => {

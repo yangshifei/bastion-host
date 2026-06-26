@@ -40,18 +40,19 @@ export const emailService = {
   async sendCode(email: string): Promise<{ code: string; error?: string }> {
     try {
       const config = await this.getSmtpConfig();
+      logger.info({ host: config.host, port: config.port, email, from: config.from_address }, 'Sending email via SMTP');
       const transporter = await getTransporter(config);
       const code = generateCode();
-      await transporter.sendMail({
+      const result = await transporter.sendMail({
         from: `"${config.from_name || '堡垒机'}" <${config.from_address}>`,
         to: email,
         subject: '堡垒机登录验证码',
         text: `您的登录验证码是: ${code}\n\n此验证码 5 分钟内有效，请勿转发给他人。\n\n如非本人操作，请忽略此邮件并联系管理员。`,
       });
-      logger.info({ email }, 'Verification code sent');
+      logger.info({ email, messageId: result.messageId }, 'Verification code sent successfully');
       return { code };
     } catch (err: any) {
-      logger.error({ err, email }, 'Failed to send verification code');
+      logger.error({ err: err.message, code: err.code, command: err.command, email }, 'Failed to send verification code');
       return { code: '', error: err.message };
     }
   },
