@@ -354,7 +354,7 @@ router.post('/mfa/verify', loginLimiter, validate(mfaVerifySchema), async (req: 
       const trustJwt = jwt.sign({ userId: user.id, deviceId }, config.jwt.secret, { expiresIn: '7d' });
       res.cookie('mfa_trust', trustJwt, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: false, // Allow on HTTP (nginx handles HTTPS if needed)
         sameSite: 'lax',
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
         path: '/',
