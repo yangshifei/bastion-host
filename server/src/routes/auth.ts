@@ -351,9 +351,11 @@ router.post('/mfa/verify', loginLimiter, validate(mfaVerifySchema), async (req: 
 
     // Trust device cookie (7 days)
     const { remember_me } = req.body || {};
+    logger.info({ remember_me, hasCookie: !!req.cookies }, 'MFA verify — checking remember_me');
     if (remember_me) {
       const deviceId = crypto.randomUUID();
       const trustJwt = jwt.sign({ userId: user.id, deviceId }, config.jwt.secret, { expiresIn: '7d' });
+      logger.info({ userId: user.id }, 'Setting mfa_trust cookie');
       res.cookie('mfa_trust', trustJwt, {
         httpOnly: true,
         secure: false, // Allow on HTTP (nginx handles HTTPS if needed)
