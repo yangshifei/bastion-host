@@ -30,6 +30,7 @@ const loginSchema = z.object({
 const mfaVerifySchema = z.object({
   mfaToken: z.string().min(1),
   code: z.string().length(6),
+  remember_me: z.boolean().optional(),
 });
 
 const mfaEnableSchema = z.object({
@@ -776,6 +777,7 @@ router.post('/change-password', authenticate, validate(changePasswordSchema), as
 const emailMfaSchema = z.object({
   session_token: z.string().min(1),
   code: z.string().length(6),
+  remember_me: z.boolean().optional(),
 });
 
 // POST /api/auth/mfa/email/verify
