@@ -143,7 +143,6 @@ export const TerminalRDP: React.FC<{ active?: boolean }> = ({ active = true }) =
   }, [selectedAsset, token, refreshDisplayLayout]);
 
   const handleDisconnect = useCallback(() => {
-    connectedRef.current = false;
     guacRef.current?.disconnect();
     guacRef.current = null;
     displayRef.current = null;
