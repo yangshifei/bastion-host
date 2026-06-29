@@ -37,6 +37,7 @@ export const TerminalRDP: React.FC<{ active?: boolean }> = ({ active = true }) =
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('断开');
+  const connectedRef = useRef(false);
 
   const sendDisplaySize = useCallback((client: any) => {
     const container = viewportRef.current;
@@ -107,15 +108,19 @@ export const TerminalRDP: React.FC<{ active?: boolean }> = ({ active = true }) =
         setConnectionStatus(name);
 
         if (state === 3) {
+          connectedRef.current = true;
           setConnected(true);
           setConnecting(false);
-          // Wait for layout to settle before sending size
           requestAnimationFrame(() => {
             requestAnimationFrame(refreshDisplayLayout);
             setTimeout(refreshDisplayLayout, 200);
           });
         }
         if (state === 5) {
+          if (!connectedRef.current) {
+            MessagePlugin.error('连接被拒绝，该资产正在被其他人使用或不可用');
+          }
+          connectedRef.current = false;
           setConnected(false);
           setConnecting(false);
         }
@@ -138,6 +143,7 @@ export const TerminalRDP: React.FC<{ active?: boolean }> = ({ active = true }) =
   }, [selectedAsset, token, refreshDisplayLayout]);
 
   const handleDisconnect = useCallback(() => {
+    connectedRef.current = false;
     guacRef.current?.disconnect();
     guacRef.current = null;
     displayRef.current = null;
