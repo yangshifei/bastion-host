@@ -151,6 +151,14 @@ export async function handleRDPConnection(
         return;
       }
 
+      // RDP: only one active session per asset
+      for (const s of sessionManager.getAllActive()) {
+        if (s.assetId === assetId && s.protocol === 'rdp') {
+          ws.close(4008, '该资产正在被其他用户使用中，暂不可连接');
+          return;
+        }
+      }
+
       const [assets] = await pool.query<any[]>(
         'SELECT * FROM assets WHERE id = ? AND deleted_at IS NULL', [assetId]
       );
