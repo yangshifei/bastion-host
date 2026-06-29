@@ -14,8 +14,8 @@ export const authService = {
     return api.get('/auth/captcha').then(r => r.data);
   },
 
-  mfaVerify(mfaToken: string, code: string): Promise<ApiResponse<LoginResponse>> {
-    return api.post('/auth/mfa/verify', { mfaToken, code }).then(r => r.data);
+  mfaVerify(mfaToken: string, code: string, rememberMe?: boolean): Promise<ApiResponse<LoginResponse>> {
+    return api.post('/auth/mfa/verify', { mfaToken, code, remember_me: rememberMe }).then(r => r.data);
   },
 
   mfaSetup(): Promise<ApiResponse<MfaSetupData>> {
@@ -30,8 +30,8 @@ export const authService = {
     return api.post('/auth/mfa/disable', { password }).then(r => r.data);
   },
 
-  emailMfaVerify(sessionToken: string, code: string): Promise<ApiResponse<LoginResponse>> {
-    return api.post('/auth/mfa/email/verify', { session_token: sessionToken, code }).then(r => r.data);
+  emailMfaVerify(sessionToken: string, code: string, rememberMe?: boolean): Promise<ApiResponse<LoginResponse>> {
+    return api.post('/auth/mfa/email/verify', { session_token: sessionToken, code, remember_me: rememberMe }).then(r => r.data);
   },
 
   emailMfaEnable(): Promise<ApiResponse<any>> {

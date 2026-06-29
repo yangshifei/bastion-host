@@ -34,6 +34,7 @@ export const Login: React.FC = () => {
   const [recoveryCode, setRecoveryCode] = useState('');
   const [emailSessionToken, setEmailSessionToken] = useState('');
   const [emailHint, setEmailHint] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [captchaId, setCaptchaId] = useState('');
   const [captchaQuestion, setCaptchaQuestion] = useState('');
@@ -107,7 +108,7 @@ export const Login: React.FC = () => {
     }
     setLoading(true);
     try {
-      const res = await authService.mfaVerify(mfaToken, mfaCode);
+      const res = await authService.mfaVerify(mfaToken, mfaCode, rememberMe);
       if (res.code === 0 && res.data?.token && res.data?.user) {
         setAuth(res.data.token, res.data.user);
         MessagePlugin.success('MFA 验证成功');
@@ -151,7 +152,7 @@ export const Login: React.FC = () => {
     }
     setLoading(true);
     try {
-      const res = await authService.emailMfaVerify(emailSessionToken, mfaCode);
+      const res = await authService.emailMfaVerify(emailSessionToken, mfaCode, rememberMe);
       if (res.code === 0 && res.data?.token && res.data?.user) {
         setAuth(res.data.token, res.data.user);
         MessagePlugin.success('验证成功');
@@ -321,6 +322,11 @@ export const Login: React.FC = () => {
                     onEnter={handleMfaVerify}
                   />
                 </FormItem>
+                <label className="flex items-center gap-2 mb-3 cursor-pointer text-sm text-slate-400">
+                  <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 rounded accent-cyan-500" />
+                  7 天内免验证
+                </label>
                 <Button
                   theme="primary"
                   block
@@ -361,6 +367,11 @@ export const Login: React.FC = () => {
                     onEnter={handleEmailVerify}
                   />
                 </FormItem>
+                <label className="flex items-center gap-2 mb-3 cursor-pointer text-sm text-slate-400">
+                  <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 rounded accent-cyan-500" />
+                  7 天内免验证
+                </label>
                 <Button theme="primary" block size="large" loading={loading} onClick={handleEmailVerify}>
                   验证
                 </Button>

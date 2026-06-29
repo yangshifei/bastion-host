@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth';
 import usersRoutes from './routes/users';
 import assetsRoutes from './routes/assets';
@@ -21,6 +22,7 @@ app.set('trust proxy', 1);
 app.use(helmet({
   contentSecurityPolicy: false, // Allow xterm.js inline styles
 }));
+app.use(cookieParser());
 
 // ---- CORS ----
 app.use(cors({
