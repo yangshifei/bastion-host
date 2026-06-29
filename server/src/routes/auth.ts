@@ -226,11 +226,13 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req: Request, 
 
     // Check trusted device cookie — skip MFA if valid
     const trustToken = req.cookies?.mfa_trust;
+    logger.info({ hasTrustCookie: !!trustToken, userId: user.id, cookies: Object.keys(req.cookies || {}) }, 'Login trust check');
     if (trustToken && user.mfa_enabled) {
       try {
         const trustPayload = jwt.verify(trustToken, config.jwt.secret) as { userId: number; deviceId: string };
         if (trustPayload.userId === user.id) {
           // Trusted device — skip MFA, issue full token directly
+          logger.info({ userId: user.id }, 'Trusted device — skipping MFA');
           const token = generateToken(user.id, user.username, user.role);
           await pool.query('UPDATE users SET login_fails = 0, locked_until = NULL, last_login = NOW() WHERE id = ?', [user.id]);
           await pool.query('INSERT INTO login_logs (user_id, username, ip, user_agent, result, mfa_used) VALUES (?, ?, ?, ?, ?, 0)',
