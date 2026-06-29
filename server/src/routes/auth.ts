@@ -30,6 +30,7 @@ const loginSchema = z.object({
 const mfaVerifySchema = z.object({
   mfaToken: z.string().min(1),
   code: z.string().length(6),
+  remember_me: z.boolean().optional(),
 });
 
 const mfaEnableSchema = z.object({
@@ -224,6 +225,26 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req: Request, 
       return;
     }
 
+    // Check trusted device cookie — skip MFA if valid
+    const trustToken = req.cookies?.mfa_trust;
+    logger.info({ hasTrustCookie: !!trustToken, userId: user.id, cookies: Object.keys(req.cookies || {}) }, 'Login trust check');
+    if (trustToken && user.mfa_enabled) {
+      try {
+        const trustPayload = jwt.verify(trustToken, config.jwt.secret) as { userId: number; deviceId: string };
+        if (trustPayload.userId === user.id) {
+          // Trusted device — skip MFA, issue full token directly
+          logger.info({ userId: user.id }, 'Trusted device — skipping MFA');
+          const token = generateToken(user.id, user.username, user.role);
+          await pool.query('UPDATE users SET login_fails = 0, locked_until = NULL, last_login = NOW() WHERE id = ?', [user.id]);
+          await pool.query('INSERT INTO login_logs (user_id, username, ip, user_agent, result, mfa_used) VALUES (?, ?, ?, ?, ?, 0)',
+            [user.id, username, ip, userAgent, 'success']);
+          await recordAudit({ userId: user.id, username: user.username, action: 'login', ip, userAgent });
+          success(res, { token, user: sanitizeUser(user) }, '登录成功（可信设备）');
+          return;
+        }
+      } catch { /* trust token invalid, proceed to MFA */ }
+    }
+
     // If MFA enabled, check method
     if (user.mfa_enabled) {
       if (user.mfa_method === 'email' && user.email) {
@@ -328,6 +349,22 @@ router.post('/mfa/verify', loginLimiter, validate(mfaVerifySchema), async (req: 
 
     // MFA success — issue full JWT
     const token = generateToken(user.id, user.username, user.role);
+
+    // Trust device cookie (7 days)
+    const { remember_me } = req.body || {};
+    logger.info({ remember_me, hasCookie: !!req.cookies }, 'MFA verify — checking remember_me');
+    if (remember_me) {
+      const deviceId = crypto.randomUUID();
+      const trustJwt = jwt.sign({ userId: user.id, deviceId }, config.jwt.secret, { expiresIn: '7d' });
+      logger.info({ userId: user.id }, 'Setting mfa_trust cookie');
+      res.cookie('mfa_trust', trustJwt, {
+        httpOnly: true,
+        secure: false, // Allow on HTTP (nginx handles HTTPS if needed)
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        path: '/',
+      });
+    }
 
     await pool.query(
       'INSERT INTO login_logs (user_id, username, ip, user_agent, result, mfa_used) VALUES (?, ?, ?, ?, ?, 1)',
@@ -740,6 +777,7 @@ router.post('/change-password', authenticate, validate(changePasswordSchema), as
 const emailMfaSchema = z.object({
   session_token: z.string().min(1),
   code: z.string().length(6),
+  remember_me: z.boolean().optional(),
 });
 
 // POST /api/auth/mfa/email/verify
@@ -777,6 +815,16 @@ router.post('/mfa/email/verify', loginLimiter, validate(emailMfaSchema), async (
     await pool.query('INSERT INTO login_logs (user_id, username, ip, user_agent, result, mfa_used) VALUES (?, ?, ?, ?, ?, 1)',
       [user.id, user.username, auditFromReq(req).ip, auditFromReq(req).userAgent, 'success']);
     await recordAudit({ userId: user.id, username: user.username, action: 'login', ip: auditFromReq(req).ip || undefined, userAgent: auditFromReq(req).userAgent || undefined });
+
+    const { remember_me: rm } = req.body || {};
+    if (rm) {
+      const deviceId = crypto.randomUUID();
+      const trustJwt = jwt.sign({ userId: user.id, deviceId }, config.jwt.secret, { expiresIn: '7d' });
+      res.cookie('mfa_trust', trustJwt, {
+        httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000, path: '/',
+      });
+    }
 
     success(res, { token, user: sanitizeUser(user) }, '邮件验证码确认成功');
   } catch (err: any) {
