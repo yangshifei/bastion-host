@@ -105,6 +105,7 @@ export const TerminalRDP: React.FC<{ active?: boolean }> = ({ active = true }) =
       client.onstatechange = (state: number) => {
         const states = ['IDLE', 'CONNECTING', 'WAITING', 'CONNECTED', 'DISCONNECTING', 'DISCONNECTED'];
         const name = states[state] || 'UNKNOWN';
+        console.log('RDP state:', state, name);
         setConnectionStatus(name);
 
         if (state === 3) {
@@ -127,8 +128,8 @@ export const TerminalRDP: React.FC<{ active?: boolean }> = ({ active = true }) =
       };
 
       client.onerror = (err: any) => {
-        MessagePlugin.error('RDP 连接错误: ' + (err?.message || ''));
-        setConnectionStatus('错误');
+        console.log('RDP onerror:', err?.message || err);
+        setConnectionStatus('连接失败: ' + (err?.message || '未知错误'));
         setConnected(false);
         setConnecting(false);
       };
