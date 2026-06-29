@@ -118,7 +118,7 @@ export const TerminalRDP: React.FC<{ active?: boolean }> = ({ active = true }) =
         }
         if (state === 5) {
           if (!connectedRef.current) {
-            MessagePlugin.error('连接被拒绝，该资产正在被其他人使用或不可用');
+            setConnectionStatus('被拒绝 — 该资产正在使用中');
           }
           connectedRef.current = false;
           setConnected(false);
