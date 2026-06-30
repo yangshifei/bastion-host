@@ -319,11 +319,11 @@ export const Users: React.FC = () => {
           {!editingUser && (
             <FormItem label="密码" rules={[{ required: true, message: '请输入密码' }]}>
               <Input
-                type="password"
                 value={formData.password || ''}
                 onChange={(v) => setFormData({ ...formData, password: v })}
                 placeholder="至少8位，含字母和数字"
                 prefixIcon={<LockOnIcon />}
+                suffix={<Button variant="text" size="small" onClick={() => navigator.clipboard.writeText(formData.password || '').then(() => MessagePlugin.success('已复制'))}>复制</Button>}
               />
             </FormItem>
           )}
