@@ -245,27 +245,20 @@ export const SessionReplay: React.FC = () => {
         {loading || !selectedSession ? (
           <LoadingSkeleton />
         ) : (
-          <div className="replay-player glass-panel overflow-hidden">
-            {/* ── Session metadata bar ── */}
+          <div className="replay-player glass-panel overflow-hidden flex flex-col" style={{ height: 'calc(100vh - 160px)' }}>
+            {/* ── Session metadata bar (compact) ── */}
             {selectedSession && (
-              <div className="replay-meta flex items-center gap-3 px-4 py-2.5 border-b border-white/[0.04] text-xs bg-white/[0.015]">
-                <Tag
-                  theme={selectedSession.protocol === 'ssh' ? 'primary' : 'warning'}
-                  variant="light"
-                  size="small"
-                >
-                  {selectedSession.protocol?.toUpperCase()}
-                </Tag>
-                <span className="text-slate-400">
-                  {selectedSession.username}@{selectedSession.asset_name}
-                </span>
+              <div className="flex items-center gap-2 px-3 py-1.5 border-b border-white/[0.04] text-[11px] bg-white/[0.015] shrink-0">
+                <span className={`inline-block w-1.5 h-1.5 rounded-full ${selectedSession.protocol === 'ssh' ? 'bg-blue-400' : 'bg-amber-400'}`} />
+                <span className="text-slate-400 font-medium">{selectedSession.protocol?.toUpperCase()}</span>
                 <span className="text-slate-600">·</span>
-                <span className="text-slate-500">{selectedSession.start_time}</span>
+                <span className="text-slate-300">{selectedSession.username}@{selectedSession.asset_name}</span>
+                <span className="text-slate-600 ml-auto">{selectedSession.start_time}</span>
               </div>
             )}
 
             {/* ── Video display area ── */}
-            <div className="relative" style={{ height: 'calc(100vh - 288px)', minHeight: 360 }}>
+            <div className="relative flex-1 min-h-[300px]">
               {isRdp && selectedSession ? (
                 <RdpReplayPlayer
                   sessionId={selectedSession.id}
@@ -302,7 +295,7 @@ export const SessionReplay: React.FC = () => {
             </div>
 
             {/* ── Control bar ── */}
-            <div className="replay-controls-bar flex items-center gap-3 px-4 py-3 border-t border-white/[0.04] bg-white/[0.015]">
+            <div className="flex items-center gap-2 px-3 py-2 border-t border-white/[0.04] bg-white/[0.015] shrink-0">
               {/* Left: play/pause + step + time */}
               <div className="flex items-center gap-1.5 shrink-0">
                 <Button
