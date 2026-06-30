@@ -152,7 +152,9 @@ export async function handleRDPConnection(
       }
 
       // RDP: only one active session per asset
-      for (const s of sessionManager.getAllActive()) {
+      const allSessions = sessionManager.getAllActive();
+      logger.info({ allSessions: allSessions.map(s => ({ id: s.id, assetId: s.assetId, userId: s.userId, protocol: s.protocol })) }, 'Active sessions check');
+      for (const s of allSessions) {
         if (s.assetId === assetId && s.protocol === 'rdp') {
           logger.warn({ assetId, existingUser: s.userId, newUser: userId }, 'Rejecting RDP — asset already in use');
           // Send Guacamole error instruction before closing — triggers client.onerror
@@ -300,6 +302,9 @@ export async function handleRDPConnection(
       recorder.discard();
     }
 
-    if (sessionId) sessionManager.remove(sessionId);
+    if (sessionId) {
+      sessionManager.remove(sessionId);
+      logger.info({ sessionId, assetId }, 'RDP session removed from manager');
+    }
   }
 }
