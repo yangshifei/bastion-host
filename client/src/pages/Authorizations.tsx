@@ -2,14 +2,13 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Table,
   Button,
-  Tag,
   Space,
   Popconfirm,
   MessagePlugin,
   Input,
   Select,
 } from 'tdesign-react';
-import { AddIcon, DeleteIcon, EditIcon, SearchIcon, RefreshIcon, LinkIcon } from 'tdesign-icons-react';
+import { AddIcon, DeleteIcon, EditIcon, SearchIcon, RefreshIcon, LinkIcon, TerminalIcon, DesktopIcon } from 'tdesign-icons-react';
 import { authorizationService } from '../services/authorizationService';
 import { userService } from '../services/userService';
 import { assetService } from '../services/assetService';
@@ -132,70 +131,68 @@ export const Authorizations: React.FC = () => {
   };
 
   const columns = [
-    { colKey: 'id', title: 'ID', width: 60 },
-    { colKey: 'user_username', title: '用户', width: 110 },
     {
-      colKey: 'asset_name',
-      title: '资产',
-      ellipsis: true,
+      colKey: 'info',
+      title: '用户 / 资产',
+      width: 240,
       cell: ({ row }: any) => (
-        <div>
-          <p className="text-slate-200">{row.asset_name}</p>
-          <p className="text-xs text-slate-500">{row.asset_host}</p>
+        <div className="flex items-center gap-2.5">
+          <span className={`flex items-center justify-center w-7 h-7 rounded-lg shrink-0 ${row.asset_protocol === 'ssh' ? 'bg-blue-500/10 text-blue-400' : 'bg-amber-500/10 text-amber-400'}`}>
+            {row.asset_protocol === 'ssh' ? <TerminalIcon size="14px" /> : <DesktopIcon size="14px" />}
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-slate-200 truncate">{row.user_username} → {row.asset_name}</p>
+            <p className="text-[11px] text-slate-500">{row.asset_host}</p>
+          </div>
         </div>
-      ),
-    },
-    {
-      colKey: 'asset_protocol',
-      title: '协议',
-      width: 80,
-      cell: ({ row }: any) => (
-        <Tag theme={row.asset_protocol === 'ssh' ? 'primary' : 'warning'} variant="light" size="small">
-          {row.asset_protocol?.toUpperCase()}
-        </Tag>
       ),
     },
     {
       colKey: 'status',
       title: '状态',
-      width: 90,
+      width: 80,
+      cell: ({ row }: any) => {
+        const theme = AUTHZ_STATUS_THEMES[row.status] || 'default';
+        const colors: Record<string, string> = { success: 'bg-emerald-400', warning: 'bg-amber-400', danger: 'bg-red-400', default: 'bg-slate-500' };
+        const texts: Record<string, string> = { success: 'text-emerald-400', warning: 'text-amber-400', danger: 'text-red-400', default: 'text-slate-400' };
+        return (
+          <div className="flex items-center gap-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${colors[theme] || colors.default}`} />
+            <span className={`text-xs ${texts[theme] || texts.default}`}>
+              {AUTHZ_STATUS_LABELS[row.status] || row.status}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      colKey: 'time',
+      title: '有效期',
+      width: 180,
       cell: ({ row }: any) => (
-        <Tag theme={AUTHZ_STATUS_THEMES[row.status] || 'default'} variant="light" size="small">
-          {AUTHZ_STATUS_LABELS[row.status] || row.status}
-        </Tag>
+        <div className="text-xs">
+          <p className="text-slate-300">{row.start_time ? formatDateTime(row.start_time) : '立即生效'}</p>
+          <p className="text-slate-500">→ {row.end_time ? formatDateTime(row.end_time) : '永不过期'}</p>
+        </div>
       ),
-    },
-    {
-      colKey: 'start_time',
-      title: '生效时间',
-      width: 160,
-      cell: ({ row }: any) => row.start_time ? formatDateTime(row.start_time) : '立即生效',
-    },
-    {
-      colKey: 'end_time',
-      title: '过期时间',
-      width: 160,
-      cell: ({ row }: any) => row.end_time ? formatDateTime(row.end_time) : '永不过期',
     },
     {
       colKey: 'granted_by_username',
       title: '授权人',
-      width: 100,
-      cell: ({ row }: any) => row.granted_by_username || '-',
+      width: 80,
+      cell: ({ row }: any) => (
+        <span className="text-xs text-slate-400">{row.granted_by_username || '-'}</span>
+      ),
     },
     {
       colKey: 'actions',
-      title: '操作',
-      width: 140,
+      title: '',
+      width: 80,
       cell: ({ row }: any) => (
         <Space size="small">
-          <Button variant="text" size="small" icon={<EditIcon />} onClick={() => openEdit(row)}>
-            编辑
-          </Button>
-          <Popconfirm content="确认删除此授权？" onConfirm={() => handleDelete(row.id)}>
-            <Button variant="text" size="small" theme="danger" icon={<DeleteIcon />}>
-              删除
-            </Button>
+          <Button variant="text" size="small" icon={<EditIcon />} onClick={() => openEdit(row)} />
+          <Popconfirm content="确认删除？" onConfirm={() => handleDelete(row.id)}>
+            <Button variant="text" size="small" theme="danger" icon={<DeleteIcon />} />
           </Popconfirm>
         </Space>
       ),
