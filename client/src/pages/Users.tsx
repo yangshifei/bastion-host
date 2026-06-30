@@ -98,9 +98,16 @@ export const Users: React.FC = () => {
 
   const openCreate = () => {
     setEditingUser(null);
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz';
+    const digits = '23456789';
+    const all = letters + digits;
     let pwd = '';
-    for (let i = 0; i < 8; i++) pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    for (let i = 0; i < 6; i++) pwd += all.charAt(Math.floor(Math.random() * all.length));
+    // Ensure at least one letter and one digit
+    pwd += letters.charAt(Math.floor(Math.random() * letters.length));
+    pwd += digits.charAt(Math.floor(Math.random() * digits.length));
+    // Shuffle
+    pwd = pwd.split('').sort(() => Math.random() - 0.5).join('');
     setFormData({ role: 'operator', status: 'active', password: pwd });
     setDialogVisible(true);
   };
