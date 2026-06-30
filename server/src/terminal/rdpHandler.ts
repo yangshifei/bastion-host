@@ -155,8 +155,10 @@ export async function handleRDPConnection(
       for (const s of sessionManager.getAllActive()) {
         if (s.assetId === assetId && s.protocol === 'rdp') {
           logger.warn({ assetId, existingUser: s.userId, newUser: userId }, 'Rejecting RDP — asset already in use');
-          ws.close(4008, '该资产正在被其他用户使用中，暂不可连接');
-          // Also close recorder since we're rejecting
+          // Send Guacamole error instruction before closing — triggers client.onerror
+          const msg = '该资产正在被其他用户使用中，暂不可连接';
+          ws.send(`5.error,${msg.length}.${msg};`);
+          ws.close(4008);
           recorder.discard();
           return;
         }
