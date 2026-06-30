@@ -189,7 +189,12 @@ export const Assets: React.FC = () => {
       fetchAssets();
       fetchGroups();
     } catch (err: any) {
-      MessagePlugin.error(err.response?.data?.message || '操作失败');
+      const data = err.response?.data;
+      if (data?.errors?.length) {
+        MessagePlugin.error(data.errors.map((e: any) => `${e.field}: ${e.message}`).join('; '));
+      } else {
+        MessagePlugin.error(data?.message || '操作失败');
+      }
     }
   };
 
