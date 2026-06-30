@@ -37,12 +37,13 @@ services:
       context: .
       dockerfile: server/Dockerfile
     container_name: bastion-app
-    network_mode: host
+    ports:
+      - "3001:3001"
     environment:
       TZ: Asia/Shanghai
       NODE_ENV: production
       PORT: 3001
-      DB_HOST: 127.0.0.1
+      DB_HOST: mysql
       DB_PORT: 3306
       DB_USER: bastion
       DB_PASSWORD: ${DB_PASSWORD:-bastion123}
@@ -50,7 +51,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production-min-32-bytes}
       JWT_EXPIRES_IN: 2h
       ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6}
-      GUACD_HOST: 127.0.0.1
+      GUACD_HOST: guacd
       GUACD_PORT: 4822
       LOG_LEVEL: info
       SESSION_IDLE_TIMEOUT: 900
