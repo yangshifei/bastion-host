@@ -325,6 +325,7 @@ export const Users: React.FC = () => {
                 placeholder="至少8位，含字母和数字"
                 prefixIcon={<LockOnIcon />}
                 key={`pwd-${formData.password || ''}`}
+                suffix={<Button variant="text" size="small" onClick={() => { navigator.clipboard.writeText(formData.password || ''); MessagePlugin.success('已复制'); }}>复制</Button>}
               />
             </FormItem>
           )}
