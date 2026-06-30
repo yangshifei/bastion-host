@@ -98,7 +98,9 @@ export const Users: React.FC = () => {
 
   const openCreate = () => {
     setEditingUser(null);
-    const pwd = Array.from({ length: 8 }, () => 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 56)]).join('');
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    let pwd = '';
+    for (let i = 0; i < 8; i++) pwd += chars.charAt(Math.floor(Math.random() * chars.length));
     setFormData({ role: 'operator', status: 'active', password: pwd });
     setDialogVisible(true);
   };
