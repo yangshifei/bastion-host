@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Tag, Slider, Select, MessagePlugin, Table } from 'tdesign-react';
-import { PlayIcon, PauseIcon, ChevronLeftIcon, VideoIcon, ForwardIcon, BackwardIcon, ReplayIcon } from 'tdesign-icons-react';
+import { Button, Slider, Select, MessagePlugin, Table } from 'tdesign-react';
+import { PlayIcon, PauseIcon, ChevronLeftIcon, VideoIcon, ForwardIcon, BackwardIcon, ReplayIcon, TerminalIcon, DesktopIcon } from 'tdesign-icons-react';
 import { sessionService } from '../services/sessionService';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState } from '../components/EmptyState';
@@ -379,51 +379,63 @@ export const SessionReplay: React.FC = () => {
   }
 
   const columns = [
-    { colKey: 'id', title: 'ID', width: 60 },
-    { colKey: 'username', title: '用户', width: 100 },
-    { colKey: 'asset_name', title: '资产', ellipsis: true },
+    {
+      colKey: 'session',
+      title: '会话信息',
+      width: 240,
+      cell: ({ row }: { row: Session }) => (
+        <div className="flex items-center gap-2.5">
+          <span className={`flex items-center justify-center w-7 h-7 rounded-lg shrink-0 ${row.protocol === 'ssh' ? 'bg-blue-500/10 text-blue-400' : 'bg-amber-500/10 text-amber-400'}`}>
+            {row.protocol === 'ssh' ? <TerminalIcon size="14px" /> : <DesktopIcon size="14px" />}
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-slate-200 truncate">{row.username} · {row.asset_name}</p>
+            <p className="text-[11px] text-slate-500">{row.start_time}</p>
+          </div>
+        </div>
+      ),
+    },
     {
       colKey: 'protocol',
       title: '协议',
-      width: 80,
+      width: 65,
       cell: ({ row }: { row: Session }) => (
-        <Tag theme={row.protocol === 'ssh' ? 'primary' : 'warning'} variant="light" size="small">
+        <span className={`text-xs font-medium ${row.protocol === 'ssh' ? 'text-blue-400' : 'text-amber-400'}`}>
           {row.protocol?.toUpperCase()}
-        </Tag>
-      ),
-    },
-    { colKey: 'start_time', title: '开始时间', width: 170 },
-    {
-      colKey: 'status',
-      title: '状态',
-      width: 90,
-      cell: ({ row }: { row: Session }) => (
-        <Tag
-          theme={row.status === 'terminated' ? 'danger' : row.status === 'timeout' ? 'warning' : 'default'}
-          variant="light"
-          size="small"
-        >
-          {row.status === 'terminated' ? '已阻断' : row.status === 'timeout' ? '超时' : '已结束'}
-        </Tag>
+        </span>
       ),
     },
     {
       colKey: 'duration_sec',
       title: '时长',
-      width: 90,
-      cell: ({ row }: { row: Session }) => formatDuration(row.duration_sec ?? undefined),
+      width: 80,
+      cell: ({ row }: { row: Session }) => (
+        <span className="text-xs text-slate-400">{formatDuration(row.duration_sec ?? undefined)}</span>
+      ),
+    },
+    {
+      colKey: 'status',
+      title: '状态',
+      width: 80,
+      cell: ({ row }: { row: Session }) => {
+        const isTerminated = row.status === 'terminated';
+        const isTimeout = row.status === 'timeout';
+        return (
+          <div className="flex items-center gap-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${isTerminated ? 'bg-red-400' : isTimeout ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+            <span className={`text-xs ${isTerminated ? 'text-red-400' : isTimeout ? 'text-amber-400' : 'text-emerald-400'}`}>
+              {row.status === 'terminated' ? '已阻断' : row.status === 'timeout' ? '超时' : '已结束'}
+            </span>
+          </div>
+        );
+      },
     },
     {
       colKey: 'actions',
-      title: '操作',
-      width: 90,
+      title: '',
+      width: 60,
       cell: ({ row }: { row: Session }) => (
-        <Button
-          variant="text"
-          size="small"
-          disabled={!row.recording_path}
-          onClick={() => navigate(`/replay/${row.id}`)}
-        >
+        <Button variant="text" size="small" disabled={!row.recording_path} onClick={() => navigate(`/replay/${row.id}`)}>
           回放
         </Button>
       ),
