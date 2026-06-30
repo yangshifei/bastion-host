@@ -58,7 +58,7 @@ router.get('/stats', async (_req: Request, res: Response) => {
         END) as active,
         SUM(CASE WHEN end_time IS NOT NULL AND end_time < NOW() THEN 1 ELSE 0 END) as expired,
         SUM(CASE WHEN start_time IS NOT NULL AND start_time > NOW() THEN 1 ELSE 0 END) as pending
-      FROM authorizations
+      FROM authorizations a JOIN assets ast ON a.asset_id = ast.id AND ast.deleted_at IS NULL
     `);
 
     success(res, stats[0]);
@@ -71,7 +71,7 @@ router.get('/stats', async (_req: Request, res: Response) => {
 router.get('/pairs', async (_req: Request, res: Response) => {
   try {
     const [rows] = await pool.query<any[]>(
-      'SELECT user_id, asset_id FROM authorizations'
+      `SELECT a.user_id, a.asset_id FROM authorizations a JOIN assets ast ON a.asset_id = ast.id AND ast.deleted_at IS NULL`
     );
     success(res, rows);
   } catch (err: any) {
@@ -121,7 +121,7 @@ router.get('/', async (req: Request, res: Response) => {
       `SELECT COUNT(*) as total
        FROM authorizations a
        JOIN users u ON a.user_id = u.id
-       JOIN assets ast ON a.asset_id = ast.id
+       JOIN assets ast ON a.asset_id = ast.id AND ast.deleted_at IS NULL
        ${where}`,
       params
     );
@@ -136,7 +136,7 @@ router.get('/', async (req: Request, res: Response) => {
               ${AUTHZ_STATUS_SQL} as status
        FROM authorizations a
        JOIN users u ON a.user_id = u.id
-       JOIN assets ast ON a.asset_id = ast.id
+       JOIN assets ast ON a.asset_id = ast.id AND ast.deleted_at IS NULL
        LEFT JOIN users gb ON a.granted_by = gb.id
        ${where}
        ORDER BY a.id DESC LIMIT ? OFFSET ?`,
