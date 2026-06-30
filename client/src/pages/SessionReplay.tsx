@@ -433,9 +433,16 @@ export const SessionReplay: React.FC = () => {
     {
       colKey: 'actions',
       title: '',
-      width: 60,
+      width: 80,
       cell: ({ row }: { row: Session }) => (
-        <Button variant="text" size="small" disabled={!row.recording_path} onClick={() => navigate(`/replay/${row.id}`)}>
+        <Button
+          variant="outline"
+          size="small"
+          theme="primary"
+          icon={<PlayIcon />}
+          disabled={!row.recording_path}
+          onClick={() => navigate(`/replay/${row.id}`)}
+        >
           回放
         </Button>
       ),
