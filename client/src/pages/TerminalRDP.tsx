@@ -37,6 +37,7 @@ export const TerminalRDP: React.FC<{ active?: boolean }> = ({ active = true }) =
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('断开');
+  const connectedRef = useRef(false);
 
   const sendDisplaySize = useCallback((client: any) => {
     const container = viewportRef.current;
@@ -107,23 +108,26 @@ export const TerminalRDP: React.FC<{ active?: boolean }> = ({ active = true }) =
         setConnectionStatus(name);
 
         if (state === 3) {
+          connectedRef.current = true;
           setConnected(true);
           setConnecting(false);
-          // Wait for layout to settle before sending size
           requestAnimationFrame(() => {
             requestAnimationFrame(refreshDisplayLayout);
             setTimeout(refreshDisplayLayout, 200);
           });
         }
         if (state === 5) {
+          if (!connectedRef.current) {
+            setConnectionStatus('被拒绝 — 该资产正在使用中');
+          }
+          connectedRef.current = false;
           setConnected(false);
           setConnecting(false);
         }
       };
 
       client.onerror = (err: any) => {
-        MessagePlugin.error('RDP 连接错误: ' + (err?.message || ''));
-        setConnectionStatus('错误');
+        setConnectionStatus('连接失败: ' + (err?.message || '未知错误'));
         setConnected(false);
         setConnecting(false);
       };

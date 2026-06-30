@@ -47,6 +47,10 @@ export const assetService = {
     return api.post(`/assets/${id}/test`).then(r => r.data);
   },
 
+  renameGroup(oldName: string, newName: string): Promise<ApiResponse<{ affected: number }>> {
+    return api.patch('/assets/group/rename', { oldName, newName }).then(r => r.data);
+  },
+
   importCsv(file: File): Promise<ApiResponse<{ imported: number; skipped: number; total: number; errors: string[] }>> {
     const form = new FormData();
     form.append('file', file);

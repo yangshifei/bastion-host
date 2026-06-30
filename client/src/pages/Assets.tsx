@@ -31,6 +31,47 @@ import { RecordingSwitch } from '../components/RecordingSwitch';
 
 const { FormItem } = Form;
 
+const RenameGroup: React.FC<{ oldName: string; onRenamed: () => void }> = ({ oldName, onRenamed }) => {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(oldName);
+
+  if (!editing) {
+    return (
+      <span className="cursor-pointer hover:text-cyan-400 transition-colors"
+        onClick={(e) => { e.stopPropagation(); setName(oldName); setEditing(true); }}
+        title="点击编辑分组名称">
+        {oldName}
+      </span>
+    );
+  }
+
+  return (
+    <span onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1">
+      <input
+        value={name}
+        onChange={e => setName(e.target.value)}
+        onKeyDown={async e => {
+          if (e.key === 'Enter') await handleSave();
+          if (e.key === 'Escape') setEditing(false);
+        }}
+        className="bg-slate-700 border border-cyan-500/30 rounded px-1.5 py-0.5 text-sm text-slate-200 outline-none w-24"
+        autoFocus
+      />
+      <Button variant="text" size="small" icon={<EditIcon />} onClick={handleSave} />
+    </span>
+  );
+
+  async function handleSave() {
+    if (!name.trim() || name.trim() === oldName) { setEditing(false); return; }
+    try {
+      const res = await assetService.renameGroup(oldName, name.trim());
+      if (res.code === 0) { MessagePlugin.success(res.message); onRenamed(); }
+      else MessagePlugin.error(res.message || '重命名失败');
+    } catch { MessagePlugin.error('重命名失败'); }
+    setEditing(false);
+  }
+};
+
 export const Assets: React.FC = () => {
   const [assets, setAssets] = useState<SafeAsset[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
@@ -189,7 +230,12 @@ export const Assets: React.FC = () => {
       fetchAssets();
       fetchGroups();
     } catch (err: any) {
-      MessagePlugin.error(err.response?.data?.message || '操作失败');
+      const data = err.response?.data;
+      if (data?.errors?.length) {
+        MessagePlugin.error(data.errors.map((e: any) => `${e.field}: ${e.message}`).join('; '));
+      } else {
+        MessagePlugin.error(data?.message || '操作失败');
+      }
     }
   };
 
@@ -257,11 +303,11 @@ export const Assets: React.FC = () => {
       cell: ({ row }: { row: AssetTreeRow }) => {
         if (isAssetGroupRow(row)) {
           return (
-            <span className="inline-flex items-center gap-2 font-semibold text-sm text-slate-200">
+            <span className="inline-flex items-center gap-2 font-semibold text-sm text-slate-200 group">
               <span className="flex items-center justify-center w-6 h-6 rounded-md bg-cyan-500/10 text-cyan-400">
                 <FolderOpenIcon size="14px" />
               </span>
-              <span>{row.group_name}</span>
+              <RenameGroup oldName={row.group_name} onRenamed={() => { fetchAssets(); fetchGroups(); }} />
               <span className="text-[11px] text-slate-500 font-normal">({row.children.length})</span>
             </span>
           );

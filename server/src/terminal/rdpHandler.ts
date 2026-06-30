@@ -151,6 +151,21 @@ export async function handleRDPConnection(
         return;
       }
 
+      // RDP: only one active session per asset
+      const allSessions = sessionManager.getAllActive();
+      logger.info({ allSessions: allSessions.map(s => ({ id: s.id, assetId: s.assetId, userId: s.userId, protocol: s.protocol })) }, 'Active sessions check');
+      for (const s of allSessions) {
+        if (s.assetId === assetId && s.protocol === 'rdp') {
+          logger.warn({ assetId, existingUser: s.userId, newUser: userId }, 'Rejecting RDP — asset already in use');
+          // Send Guacamole error instruction before closing — triggers client.onerror
+          const msg = '该资产正在被其他用户使用中，暂不可连接';
+          ws.send(`5.error,${msg.length}.${msg};`);
+          ws.close(4008);
+          recorder.discard();
+          return;
+        }
+      }
+
       const [assets] = await pool.query<any[]>(
         'SELECT * FROM assets WHERE id = ? AND deleted_at IS NULL', [assetId]
       );
@@ -287,6 +302,9 @@ export async function handleRDPConnection(
       recorder.discard();
     }
 
-    if (sessionId) sessionManager.remove(sessionId);
+    if (sessionId) {
+      sessionManager.remove(sessionId);
+      logger.info({ sessionId, assetId }, 'RDP session removed from manager');
+    }
   }
 }
