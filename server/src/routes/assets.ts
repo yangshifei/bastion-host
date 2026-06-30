@@ -369,6 +369,30 @@ router.post('/:id/test', async (req: Request, res: Response) => {
   }
 });
 
+// ---- PATCH /api/assets/group/rename (admin only) ----
+router.patch('/group/rename', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { oldName, newName } = req.body;
+    if (!oldName || !newName || !newName.trim()) {
+      error(res, '分组名称不能为空', 1, 400);
+      return;
+    }
+    const [result] = await pool.query<any>(
+      'UPDATE assets SET group_name = ? WHERE group_name = ? AND deleted_at IS NULL',
+      [newName.trim(), oldName]
+    );
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'update',
+      targetType: 'asset_group',
+      detail: { oldName, newName: newName.trim(), affected: result.affectedRows },
+    });
+    success(res, { affected: result.affectedRows }, `已将 ${result.affectedRows} 个资产移至分组「${newName.trim()}」`);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
 // ---- POST /api/assets/import (admin only) ----
 router.post('/import', requireAdmin, upload.single('file'), async (req: Request, res: Response) => {
   try {
