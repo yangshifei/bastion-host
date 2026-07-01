@@ -289,9 +289,9 @@ export class CommandLineBuffer {
   }
 
   private resolveLine(lineOnEnter?: string): string {
-    const local = this.buffer.trim();
-    if (local) return local;
-    return (lineOnEnter ?? '').trim();
+    // Terminal line is more accurate — includes tab completion, history recall
+    if (lineOnEnter) return lineOnEnter.trim();
+    return this.buffer.trim();
   }
 
   private clearLine(): void {
