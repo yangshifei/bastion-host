@@ -49,8 +49,13 @@ export const TerminalSSH: React.FC<Props> = ({ active = true }) => {
           writeln(`\r\n\x1b[33m!\x1b[0m 已断开: ${msg.message || msg.reason || '未知原因'}\r\n`);
           break;
         case 'alert':
-          writeln(`\r\n\x1b[33m!\x1b[0m ${msg.message}\r\n`);
-          MessagePlugin.warning(msg.message || '');
+          if (msg.level === 'error') {
+            writeln(`\r\n\x1b[31m✖\x1b[0m ${msg.message}\r\n`);
+            MessagePlugin.error(msg.message || '');
+          } else {
+            writeln(`\r\n\x1b[33m!\x1b[0m ${msg.message}\r\n`);
+            MessagePlugin.warning(msg.message || '');
+          }
           break;
       }
     },
