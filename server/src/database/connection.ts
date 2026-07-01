@@ -9,6 +9,7 @@ export const pool = mysql.createPool({
   password: config.db.password,
   database: config.db.database,
   charset: 'utf8mb4',
+  timezone: '+08:00',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
