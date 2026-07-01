@@ -279,6 +279,7 @@ export function handleSSHConnection(ws: WebSocket, request: IncomingMessage, ses
       if (sessionId) sessionManager.updateActivity(sessionId);
 
       for (const item of completed) {
+        logger.warn({ command: item.line, level: item.check.level, blocked: item.blockedEnter, sessionId }, 'Dangerous command detected');
         if (item.blockedEnter) {
           send({
             type: 'alert',

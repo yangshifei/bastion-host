@@ -7,6 +7,7 @@ import { requireAdmin } from '../middleware/rbac';
 import { validate } from '../middleware/validator';
 import { recordAudit, auditFromReq } from '../middleware/audit';
 import { success, error, paginated } from '../utils/response';
+import { passwordPolicyService } from '../services/passwordPolicyService';
 
 const router = Router();
 
@@ -114,9 +115,13 @@ router.post('/', validate(createUserSchema), async (req: Request, res: Response)
 
     const passwordHash = await bcrypt.hash(password, 10);
 
+    // Check if policy requires new users to change password on first login
+    const policy = await passwordPolicyService.getPolicy();
+    const mustChange = policy.force_change_on_create ? 1 : 0;
+
     const [result] = await pool.query<any>(
-      'INSERT INTO users (username, password_hash, role, email, phone, status) VALUES (?, ?, ?, ?, ?, ?)',
-      [username, passwordHash, role, email, phone, status || 'active']
+      'INSERT INTO users (username, password_hash, role, email, phone, status, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [username, passwordHash, role, email, phone, status || 'active', mustChange]
     );
 
     await recordAudit({

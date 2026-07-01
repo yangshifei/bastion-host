@@ -98,7 +98,17 @@ export const Users: React.FC = () => {
 
   const openCreate = () => {
     setEditingUser(null);
-    setFormData({ role: 'operator', status: 'active' });
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz';
+    const digits = '23456789';
+    const all = letters + digits;
+    let pwd = '';
+    for (let i = 0; i < 6; i++) pwd += all.charAt(Math.floor(Math.random() * all.length));
+    // Ensure at least one letter and one digit
+    pwd += letters.charAt(Math.floor(Math.random() * letters.length));
+    pwd += digits.charAt(Math.floor(Math.random() * digits.length));
+    // Shuffle
+    pwd = pwd.split('').sort(() => Math.random() - 0.5).join('');
+    setFormData({ role: 'operator', status: 'active', password: pwd });
     setDialogVisible(true);
   };
 
@@ -314,6 +324,8 @@ export const Users: React.FC = () => {
                 onChange={(v) => setFormData({ ...formData, password: v })}
                 placeholder="至少8位，含字母和数字"
                 prefixIcon={<LockOnIcon />}
+                key={`pwd-${formData.password || ''}`}
+                suffix={<Button variant="text" size="small" onClick={() => { navigator.clipboard.writeText(formData.password || ''); MessagePlugin.success('已复制'); }}>复制</Button>}
               />
             </FormItem>
           )}
