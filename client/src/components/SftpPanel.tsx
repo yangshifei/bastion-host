@@ -79,7 +79,25 @@ export const SftpPanel: React.FC<SftpPanelProps> = ({ send, onMessage, visible, 
     } else if (msg.type === 'sftp_done') {
       fetchList(path);
     } else if (msg.type === 'sftp_download' && msg.content) {
-      setPreviewContent(atob(msg.content));
+      const pending = pendingMsgRef.current;
+      if (pending?.action === 'download' && pending.name) {
+        // Trigger browser download
+        const byteChars = atob(msg.content);
+        const bytes = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+        const blob = new Blob([bytes]);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = pending.name;
+        a.click();
+        URL.revokeObjectURL(url);
+        MessagePlugin.success('下载完成');
+        pendingMsgRef.current = null;
+      } else {
+        // Preview mode
+        setPreviewContent(atob(msg.content));
+      }
     } else if (msg.type === 'sftp_error') {
       MessagePlugin.error(msg.message);
       setLoading(false);
@@ -120,12 +138,10 @@ export const SftpPanel: React.FC<SftpPanelProps> = ({ send, onMessage, visible, 
   };
 
   const handleDownload = (f: SftpFile) => {
-    send({ type: 'sftp', action: 'download', path: path === '/' ? `/${f.name}` : `${path}/${f.name}` });
-    // Listen for download response
-    const check = setInterval(() => {
-      // handled by the message handler above
-    }, 100);
-    setTimeout(() => clearInterval(check), 10000);
+    const filePath = path === '/' ? `/${f.name}` : `${path}/${f.name}`;
+    // Store ref to handle download response
+    pendingMsgRef.current = { action: 'download', name: f.name };
+    send({ type: 'sftp', action: 'download', path: filePath });
   };
 
   const handlePreview = (f: SftpFile) => {

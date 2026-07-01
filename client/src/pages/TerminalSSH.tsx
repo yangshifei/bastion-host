@@ -66,16 +66,19 @@ export const TerminalSSH: React.FC<Props> = ({ active = true }) => {
 
   const [sftpVisible, setSftpVisible] = useState(false);
   const [sftpMessage, setSftpMessage] = useState<any>(null);
+  const sftpMsgRef = useRef<any>(null);
+
+  const wsOnMessage = useCallback((msg: WsServerMessage) => {
+    if (msg.type?.startsWith('sftp_')) {
+      sftpMsgRef.current = msg;
+      setSftpMessage(msg);
+      return;
+    }
+    handleMessage(msg);
+  }, [handleMessage]);
 
   const { status, connect, disconnect, send } = useWebSocket({
-    onMessage: (msg: WsServerMessage) => {
-      // Forward SFTP messages
-      if (msg.type?.startsWith('sftp_')) {
-        setSftpMessage(msg);
-        return;
-      }
-      handleMessage(msg);
-    },
+    onMessage: wsOnMessage,
     onClose: () => {
       setConnected(false);
       writeln('\r\n连接已关闭\r\n');
