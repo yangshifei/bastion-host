@@ -65,11 +65,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
 <!-- SPECKIT START -->
-**Active Plan**: [Email MFA Verification](specs/003-email-mfa/plan.md)
-**Feature Spec**: [spec.md](specs/003-email-mfa/spec.md)
+**Active Plan**: [SFTP File Manager](specs/004-sftp-file-manager/spec.md)
+**Feature Spec**: [spec.md](specs/004-sftp-file-manager/spec.md)
 **Design Artifacts**:
-- [research.md](specs/003-email-mfa/research.md)
-- [data-model.md](specs/003-email-mfa/data-model.md)
-- [contracts/api.md](specs/003-email-mfa/contracts/api.md)
-- [quickstart.md](specs/003-email-mfa/quickstart.md)
+- [spec.md](specs/004-sftp-file-manager/spec.md)
 <!-- SPECKIT END -->
