@@ -386,11 +386,21 @@ async function handleSftp(
   send: (data: any) => void,
   dbSessionId: number | null,
 ): Promise<void> {
-  const sftp = await new Promise<any>((resolve, reject) => {
-    client.sftp((err: any, sftp: any) => {
-      if (err) reject(err); else resolve(sftp);
+  let sftp: any;
+  try {
+    sftp = await new Promise<any>((resolve, reject) => {
+      client.sftp((err: any, s: any) => {
+        if (err) reject(err); else resolve(s);
+      });
     });
-  });
+  } catch (err: any) {
+    send({
+      type: 'sftp_error',
+      action,
+      message: 'SFTP 不可用: ' + (err.message || '未知错误') + '。请确认目标服务器已开启 SFTP 子系统（/etc/ssh/sshd_config 中 Subsystem sftp 未注释）',
+    });
+    return;
+  }
 
   const sendList = (p: string) => {
     sftp.readdir(p, (err: any, list: any[]) => {
