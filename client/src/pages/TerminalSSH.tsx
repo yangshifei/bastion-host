@@ -5,10 +5,12 @@ import {
   PoweroffIcon,
   ClearIcon,
   TerminalIcon,
+  FolderOpenIcon,
 } from 'tdesign-icons-react';
 import { AssetSelector } from '../components/AssetSelector';
 import { PageHeader } from '../components/PageHeader';
 import { TerminalToolbar, TerminalEmpty } from '../components/TerminalToolbar';
+import { SftpPanel } from '../components/SftpPanel';
 import { useTerminal } from '../hooks/useTerminal';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuthStore } from '../stores/authStore';
@@ -62,8 +64,18 @@ export const TerminalSSH: React.FC<Props> = ({ active = true }) => {
     [write, writeln, fit]
   );
 
+  const [sftpVisible, setSftpVisible] = useState(false);
+  const [sftpMessage, setSftpMessage] = useState<any>(null);
+
   const { status, connect, disconnect, send } = useWebSocket({
-    onMessage: handleMessage,
+    onMessage: (msg: WsServerMessage) => {
+      // Forward SFTP messages
+      if (msg.type?.startsWith('sftp_')) {
+        setSftpMessage(msg);
+        return;
+      }
+      handleMessage(msg);
+    },
     onClose: () => {
       setConnected(false);
       writeln('\r\n连接已关闭\r\n');
@@ -215,15 +227,22 @@ export const TerminalSSH: React.FC<Props> = ({ active = true }) => {
             断开
           </Button>
         )}
+        {connected && (
+          <Button variant="outline" icon={<FolderOpenIcon />}
+            onClick={() => setSftpVisible(v => !v)}>
+            文件
+          </Button>
+        )}
         <Button variant="outline" icon={<ClearIcon />} onClick={() => clear()} disabled={!initialized}>
           清屏
         </Button>
       </TerminalToolbar>
 
-      <div className="terminal-viewport" onClick={() => focus()}>
-        <div
-          ref={terminalDivRef}
-          className="absolute inset-0 p-1 z-[1]"
+      <div className="flex flex-1 min-h-0">
+        <div className={`terminal-viewport flex-1 ${sftpVisible ? '' : ''}`} onClick={() => focus()}>
+          <div
+            ref={terminalDivRef}
+            className="absolute inset-0 p-1 z-[1]"
           style={{ fontFamily: 'JetBrains Mono, monospace' }}
         />
         {!initialized && (
@@ -241,6 +260,16 @@ export const TerminalSSH: React.FC<Props> = ({ active = true }) => {
           </div>
         )}
       </div>
+      {sftpVisible && connected && (
+        <SftpPanel
+          send={send}
+          onMessage={setSftpMessage}
+          visible={sftpVisible}
+          onToggle={() => setSftpVisible(false)}
+          sftpMessage={sftpMessage}
+        />
+      )}
+    </div>
     </div>
   );
 };

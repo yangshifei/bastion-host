@@ -311,6 +311,15 @@ export function handleSSHConnection(ws: WebSocket, request: IncomingMessage, ses
       return;
     }
 
+    // ---- SFTP ----
+    if (type === 'sftp' && sshClient) {
+      const { action, path, data, name, newName, content } = msg;
+      handleSftp(sshClient, action, { path, data, name, newName, content }, send, dbSessionId).catch(err => {
+        send({ type: 'sftp_error', action, message: err.message });
+      });
+      return;
+    }
+
     // ---- DISCONNECT ----
     if (type === 'disconnect') {
       cleanup();
@@ -367,5 +376,96 @@ export function handleSSHConnection(ws: WebSocket, request: IncomingMessage, ses
     if (sessionId) {
       sessionManager.remove(sessionId);
     }
+  }
+}
+
+async function handleSftp(
+  client: any,
+  action: string,
+  params: { path?: string; data?: string; name?: string; newName?: string; content?: string },
+  send: (data: any) => void,
+  dbSessionId: number | null,
+): Promise<void> {
+  const sftp = await new Promise<any>((resolve, reject) => {
+    client.sftp((err: any, sftp: any) => {
+      if (err) reject(err); else resolve(sftp);
+    });
+  });
+
+  const sendList = (p: string) => {
+    sftp.readdir(p, (err: any, list: any[]) => {
+      if (err) { send({ type: 'sftp_list', path: p, error: err.message }); return; }
+      const files = list.map(f => ({
+        name: f.filename,
+        size: f.attrs.size,
+        permissions: f.longname?.split(' ')[0] || '',
+        mtime: f.attrs.mtime ? new Date(f.attrs.mtime * 1000).toISOString() : '',
+        isDir: f.attrs.isDirectory() || f.longname?.startsWith('d') || false,
+        isSymlink: f.attrs.isSymbolicLink() || f.longname?.startsWith('l') || false,
+      }));
+      send({ type: 'sftp_list', path: p, files });
+    });
+  };
+
+  try {
+    switch (action) {
+      case 'list': {
+        const p = params.path || '.';
+        sendList(p);
+        break;
+      }
+      case 'mkdir': {
+        const p = params.path + '/' + params.name;
+        sftp.mkdir(p, (err: any) => {
+          if (err) { send({ type: 'sftp_error', action, message: err.message }); return; }
+          send({ type: 'sftp_done', action });
+          sendList(params.path || '.');
+        });
+        break;
+      }
+      case 'delete': {
+        const p = params.path;
+        sftp.stat(p, (_err: any, stat: any) => {
+          const isDir = stat?.isDirectory();
+          const del = isDir ? sftp.rmdir.bind(sftp) : sftp.unlink.bind(sftp);
+          del(p, (e: any) => {
+            if (e) { send({ type: 'sftp_error', action, message: e.message }); return; }
+            send({ type: 'sftp_done', action });
+          });
+        });
+        break;
+      }
+      case 'rename': {
+        const oldP = params.path;
+        const newP = params.newName;
+        sftp.rename(oldP, newP, (err: any) => {
+          if (err) { send({ type: 'sftp_error', action, message: err.message }); return; }
+          send({ type: 'sftp_done', action });
+        });
+        break;
+      }
+      case 'download': {
+        sftp.readFile(params.path, (err: any, buf: Buffer) => {
+          if (err) { send({ type: 'sftp_error', action, message: err.message }); return; }
+          send({ type: 'sftp_download', path: params.path, content: buf.toString('base64') });
+        });
+        break;
+      }
+      case 'upload': {
+        if (!params.content || !params.name) { send({ type: 'sftp_error', action, message: '缺少文件内容' }); return; }
+        const p = (params.path || '.') + '/' + params.name;
+        const buf = Buffer.from(params.content, 'base64');
+        sftp.writeFile(p, buf, (err: any) => {
+          if (err) { send({ type: 'sftp_error', action, message: err.message }); return; }
+          send({ type: 'sftp_done', action });
+          sendList(params.path || '.');
+        });
+        break;
+      }
+      default:
+        send({ type: 'sftp_error', action, message: '未知操作: ' + action });
+    }
+  } finally {
+    // Don't end sftp — reuse for subsequent operations
   }
 }
