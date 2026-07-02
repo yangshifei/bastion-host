@@ -387,6 +387,7 @@ export const Assets: React.FC = () => {
       width: 75,
       cell: ({ row }: { row: AssetTreeRow }) => {
         if (isAssetGroupRow(row)) return <span className="text-slate-600 text-xs">—</span>;
+        if ((row as any).asset_type === 'database') return <span className="text-slate-600 text-xs">—</span>;
         const enabled = Boolean(row.recording_enabled);
         return (
           <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
