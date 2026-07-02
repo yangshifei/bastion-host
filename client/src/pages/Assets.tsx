@@ -171,6 +171,7 @@ export const Assets: React.FC = () => {
   const openCreate = (groupName?: string) => {
     setEditingAsset(null);
     setFormData({
+      asset_type: 'host',
       protocol: 'ssh',
       port: 22,
       group_name: groupName && groupName !== '未分组' ? groupName : 'default',
@@ -314,10 +315,15 @@ export const Assets: React.FC = () => {
         }
         return (
           <div className="flex items-center gap-2.5">
-            <span className={`flex items-center justify-center w-6 h-6 rounded-md shrink-0 ${row.protocol === 'ssh' ? 'bg-blue-500/10 text-blue-400' : 'bg-amber-500/10 text-amber-400'}`}>
-              {row.protocol === 'ssh' ? <TerminalIcon size="13px" /> : <DesktopIcon size="13px" />}
+            <span className={`flex items-center justify-center w-6 h-6 rounded-md shrink-0 ${(row as any).asset_type === 'database' ? 'bg-green-500/10 text-green-400' : row.protocol === 'ssh' ? 'bg-blue-500/10 text-blue-400' : 'bg-amber-500/10 text-amber-400'}`}>
+              {(row as any).asset_type === 'database' ? <FolderOpenIcon size="13px" /> : row.protocol === 'ssh' ? <TerminalIcon size="13px" /> : <DesktopIcon size="13px" />}
             </span>
-            <span className="text-sm font-medium text-slate-200 truncate">{row.name}</span>
+            <div className="min-w-0">
+              <span className="text-sm font-medium text-slate-200 truncate block">{row.name}</span>
+              {(row as any).asset_type === 'database' && (
+                <span className="text-[10px] text-green-500">{(row as any).db_type?.toUpperCase()} · {(row as any).database_name || ''}</span>
+              )}
+            </div>
           </div>
         );
       },
@@ -496,16 +502,63 @@ export const Assets: React.FC = () => {
           <FormItem label="名称" rules={[{ required: true }]}>
             <Input value={formData.name} onChange={(v) => setFormData({ ...formData, name: v })} />
           </FormItem>
-          <FormItem label="协议" rules={[{ required: true }]}>
+
+          {/* Asset type selector */}
+          <FormItem label="资产类型" rules={[{ required: true }]}>
             <Select
-              value={formData.protocol}
-              onChange={(v) => setFormData({ ...formData, protocol: v })}
+              value={formData.asset_type || 'host'}
+              onChange={(v) => setFormData({
+                ...formData,
+                asset_type: v,
+                protocol: v === 'database' ? 'ssh' : (formData.protocol || 'ssh'),
+                port: v === 'database' ? (formData.db_type === 'mssql' ? 1433 : formData.db_type === 'postgresql' ? 5432 : 3306) : (formData.port || 22),
+              })}
               options={[
-                { value: 'ssh', label: 'SSH' },
-                { value: 'rdp', label: 'RDP' },
+                { value: 'host', label: '🖥️ 主机资产 (SSH/RDP)' },
+                { value: 'database', label: '🗄️ 数据库资产 (SQL Server/MySQL/PG)' },
               ]}
             />
           </FormItem>
+
+          {/* Host-specific fields */}
+          {formData.asset_type !== 'database' && (
+            <FormItem label="协议" rules={[{ required: true }]}>
+              <Select
+                value={formData.protocol}
+                onChange={(v) => setFormData({ ...formData, protocol: v, port: v === 'ssh' ? 22 : 3389 })}
+                options={[
+                  { value: 'ssh', label: 'SSH' },
+                  { value: 'rdp', label: 'RDP' },
+                ]}
+              />
+            </FormItem>
+          )}
+
+          {/* Database-specific fields */}
+          {formData.asset_type === 'database' && (
+            <>
+              <FormItem label="数据库类型" rules={[{ required: true }]}>
+                <Select
+                  value={formData.db_type}
+                  onChange={(v) => setFormData({
+                    ...formData,
+                    db_type: v,
+                    port: v === 'mssql' ? 1433 : v === 'postgresql' ? 5432 : 3306,
+                    protocol: 'ssh',
+                  })}
+                  options={[
+                    { value: 'mysql', label: 'MySQL' },
+                    { value: 'postgresql', label: 'PostgreSQL' },
+                    { value: 'mssql', label: 'SQL Server' },
+                  ]}
+                />
+              </FormItem>
+              <FormItem label="数据库名">
+                <Input value={formData.database_name} onChange={(v) => setFormData({ ...formData, database_name: v })} placeholder="输入数据库名称" />
+              </FormItem>
+            </>
+          )}
+
           <FormItem label="主机地址" rules={[{ required: true }]}>
             <Input value={formData.host} onChange={(v) => setFormData({ ...formData, host: v })} />
           </FormItem>
@@ -539,28 +592,28 @@ export const Assets: React.FC = () => {
             />
           </FormItem>
 
-          <div className="t-form__item recording-form-row">
-            <label className="t-form__label">会话回放</label>
-            <div className="t-form__controls">
-              <div className="flex items-center gap-3">
-                <RecordingSwitch
-                  value={formData.recording_enabled !== false}
-                  onChange={(v) => setFormData({ ...formData, recording_enabled: v })}
-                />
-                <Tag
-                  theme={formData.recording_enabled !== false ? 'success' : 'default'}
-                  variant="light"
-                  size="small"
-                  className="recording-status-tag"
-                >
-                  {formData.recording_enabled !== false ? '录像已开启' : '录像已关闭'}
-                </Tag>
+          {formData.asset_type !== 'database' && (
+            <div className="t-form__item recording-form-row">
+              <label className="t-form__label">会话回放</label>
+              <div className="t-form__controls">
+                <div className="flex items-center gap-3">
+                  <RecordingSwitch
+                    value={formData.recording_enabled !== false}
+                    onChange={(v) => setFormData({ ...formData, recording_enabled: v })}
+                  />
+                  <Tag
+                    theme={formData.recording_enabled !== false ? 'success' : 'default'}
+                    variant="light"
+                    size="small"
+                    className="recording-status-tag"
+                  >
+                    {formData.recording_enabled !== false ? '录像已开启' : '录像已关闭'}
+                  </Tag>
+                </div>
+                <p className="t-form__help">开启后 SSH / RDP 连接将自动录像，可在「会话回放」中查看</p>
               </div>
-              <p className="t-form__help">
-                开启后 SSH / RDP 连接将自动录像，可在「会话回放」中查看
-              </p>
             </div>
-          </div>
+          )}
 
           <FormItem label="描述">
             <Input value={formData.description} onChange={(v) => setFormData({ ...formData, description: v })} />
