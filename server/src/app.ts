@@ -65,6 +65,18 @@ app.get('/api/dashboard/stats', async (_req, res) => {
        FROM sessions s JOIN users u ON s.user_id = u.id JOIN assets a ON s.asset_id = a.id
        ORDER BY s.start_time DESC LIMIT 5`
     );
+    const [sessionTrend] = await pool.query<any[]>(
+      `SELECT DATE(start_time) as date, COUNT(*) as count
+       FROM sessions WHERE start_time >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+       GROUP BY DATE(start_time) ORDER BY date`
+    );
+    const [protocolDist] = await pool.query<any[]>(
+      `SELECT protocol, COUNT(*) as count FROM assets WHERE deleted_at IS NULL GROUP BY protocol`
+    );
+    const [dailySessions] = await pool.query<any[]>(
+      `SELECT DATE(start_time) as date, COUNT(*) as count
+       FROM sessions WHERE start_time >= CURDATE() GROUP BY DATE(start_time)`
+    );
 
     res.json({
       code: 0,
@@ -81,6 +93,9 @@ app.get('/api/dashboard/stats', async (_req, res) => {
           total: commandStats[0].total,
           dangerous: dangerousStats[0].count,
         },
+        sessionTrend,
+        protocolDist: protocolDist.reduce((acc: any, r: any) => ({ ...acc, [r.protocol]: r.count }), {}),
+        todaySessionsDetail: dailySessions[0]?.count || todaySessions[0].count,
         recentSessions,
       },
     });

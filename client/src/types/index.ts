@@ -136,6 +136,9 @@ export interface DashboardStats {
     total: number;
     dangerous: number;
   };
+  sessionTrend?: { date: string; count: number }[];
+  protocolDist?: Record<string, number>;
+  todaySessionsDetail?: number;
   recentSessions: Session[];
 }
 
