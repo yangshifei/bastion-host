@@ -16,6 +16,7 @@ import {
   PlayCircleIcon,
 } from 'tdesign-icons-react';
 import { assetService, AssetQuery } from '../services/assetService';
+import api from '../services/api';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
 import { StatCard } from '../components/StatCard';
@@ -89,6 +90,8 @@ export const Assets: React.FC = () => {
   const [appliedProtocol, setAppliedProtocol] = useState('');
   const [appliedGroup, setAppliedGroup] = useState('');
   const [testing, setTesting] = useState<number | null>(null);
+  const [testLoading, setTestLoading] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<Array<string | number>>([]);
   const { begin, isLatest } = useRequestGuard();
 
@@ -268,6 +271,21 @@ export const Assets: React.FC = () => {
       setTesting(null);
       fetchAssets();
     }
+  };
+
+  const handleTestConnection = async () => {
+    setTestLoading(true);
+    setTestResult(null);
+    try {
+      const res = await api.post('/database/0/test', {
+        host: formData.host, port: formData.port, db_type: formData.db_type,
+        database: formData.database_name, user: formData.username, password: formData.password,
+      });
+      if (res.data?.code === 0) setTestResult({ ok: true, msg: '连接成功' });
+      else setTestResult({ ok: false, msg: res.data?.message || '连接失败' });
+    } catch (err: any) {
+      setTestResult({ ok: false, msg: err?.response?.data?.message || err.message || '测试失败' });
+    } finally { setTestLoading(false); }
   };
 
   const handleImport = async (file: any) => {
@@ -566,6 +584,16 @@ export const Assets: React.FC = () => {
               </FormItem>
               <FormItem label="数据库名">
                 <Input value={formData.database_name} onChange={(v) => setFormData({ ...formData, database_name: v })} placeholder="输入数据库名称" />
+              </FormItem>
+              <FormItem label=" ">
+                <Button variant="outline" icon={<CheckCircleIcon />} loading={testLoading} onClick={handleTestConnection}>
+                  测试连接
+                </Button>
+                {testResult && (
+                  <span className={`ml-3 text-xs ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {testResult.msg}
+                  </span>
+                )}
               </FormItem>
             </>
           )}

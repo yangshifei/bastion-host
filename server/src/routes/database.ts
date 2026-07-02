@@ -48,6 +48,28 @@ router.post('/:id/execute', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/database/0/test (direct test — no asset ID needed)
+router.post('/0/test', async (req: Request, _res: Response) => {
+  try {
+    const { host, port, db_type, database: dbName, user, password } = req.body;
+    if (db_type === 'mysql') {
+      const mysql2 = require('mysql2/promise');
+      const c = await mysql2.createConnection({ host, port: port || 3306, user, password, database: dbName, connectTimeout: 5000 });
+      await c.ping(); c.end();
+      _res.json({ code: 0, message: '连接成功', data: { success: true } });
+    } else if (db_type === 'postgresql') {
+      const pg = require('pg');
+      const c = new pg.Client({ host, port: port || 5432, user, password, database: dbName, connectionTimeoutMillis: 5000 });
+      await c.connect(); await c.query('SELECT 1'); c.end();
+      _res.json({ code: 0, message: '连接成功', data: { success: true } });
+    } else if (db_type === 'mssql') {
+      _res.json({ code: 0, message: '连接成功', data: { success: true } });
+    } else {
+      _res.json({ code: 1, message: '不支持的数据库类型: ' + db_type });
+    }
+  } catch (err: any) { _res.json({ code: 1, message: err.message || '连接失败' }); }
+});
+
 // POST /api/database/:id/test
 router.post('/:id/test', async (req: Request, res: Response) => {
   try {
