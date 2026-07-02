@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { EnhancedTable, Button, Dialog, Form, Input, Select, Tag, Space, Upload, MessagePlugin, Popconfirm } from 'tdesign-react';
 import {
   AddIcon,
@@ -12,6 +13,7 @@ import {
   TerminalIcon,
   DesktopIcon,
   CheckCircleIcon,
+  PlayCircleIcon,
 } from 'tdesign-icons-react';
 import { assetService, AssetQuery } from '../services/assetService';
 import { PageHeader } from '../components/PageHeader';
@@ -345,10 +347,12 @@ export const Assets: React.FC = () => {
     },
     {
       colKey: 'protocol',
-      title: '协议',
-      width: 70,
+      title: '类型',
+      width: 75,
       cell: ({ row }: { row: AssetTreeRow }) => {
         if (isAssetGroupRow(row)) return <span className="text-slate-600 text-xs">—</span>;
+        const isDb = (row as any).asset_type === 'database';
+        if (isDb) return <Tag theme="success" variant="light" size="small">{(row as any).db_type?.toUpperCase() || 'DB'}</Tag>;
         return (
           <Tag theme={row.protocol === 'ssh' ? 'primary' : 'warning'} variant="light" size="small">
             {row.protocol.toUpperCase()}
@@ -393,10 +397,17 @@ export const Assets: React.FC = () => {
       width: 160,
       cell: ({ row }: { row: AssetTreeRow }) => {
         if (isAssetGroupRow(row)) return null;
+        const isDb = (row as any).asset_type === 'database';
         return (
           <Space size="small">
             <Button variant="text" size="small" icon={<EditIcon />} onClick={() => openEdit(row)} />
-            <Button variant="text" size="small" icon={<RefreshIcon />} loading={testing === row.id} onClick={() => handleTest(row.id)} />
+            {isDb ? (
+              <Link to={`/database/${row.id}`}>
+                <Button variant="text" size="small" theme="primary" icon={<PlayCircleIcon />} />
+              </Link>
+            ) : (
+              <Button variant="text" size="small" icon={<RefreshIcon />} loading={testing === row.id} onClick={() => handleTest(row.id)} />
+            )}
             <Popconfirm content="确认删除？" onConfirm={() => handleDelete(row.id)}>
               <Button variant="text" size="small" theme="danger" icon={<DeleteIcon />} />
             </Popconfirm>
