@@ -132,7 +132,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     const offset = (page - 1) * pageSize;
     const [rows] = await pool.query<any[]>(
-      `SELECT a.id, a.name, a.host, a.port, a.protocol, a.username, a.group_name, a.description, a.recording_enabled, a.status, a.last_checked_at, a.created_at, a.updated_at
+      `SELECT a.id, a.name, a.host, a.port, a.protocol, a.asset_type, a.db_type, a.database_name, a.username, a.group_name, a.description, a.recording_enabled, a.status, a.last_checked_at, a.created_at, a.updated_at
        FROM assets a ${where} ORDER BY a.id DESC LIMIT ? OFFSET ?`,
       [...params, pageSize, offset]
     );
@@ -147,7 +147,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const [rows] = await pool.query<any[]>(
-      'SELECT id, name, host, port, protocol, username, group_name, description, recording_enabled, status, last_checked_at, created_at, updated_at FROM assets WHERE id = ? AND deleted_at IS NULL',
+      'SELECT id, name, host, port, protocol, asset_type, db_type, database_name, username, group_name, description, recording_enabled, status, last_checked_at, created_at, updated_at FROM assets WHERE id = ? AND deleted_at IS NULL',
       [req.params.id]
     );
     if (rows.length === 0) {
