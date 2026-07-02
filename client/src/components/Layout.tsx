@@ -18,6 +18,7 @@ import {
   VideoIcon,
   PoweroffIcon,
   SettingIcon,
+  FolderOpenIcon,
 } from 'tdesign-icons-react';
 import { useAuth } from '../hooks/useAuth';
 import { useAppStore } from '../stores/appStore';
@@ -84,6 +85,7 @@ export const Layout: React.FC = () => {
         items: [
           { path: '/terminal/ssh', icon: <TerminalIcon />, label: 'SSH 终端' },
           { path: '/terminal/rdp', icon: <DesktopIcon />, label: 'RDP 桌面' },
+          { path: '/database', icon: <FolderOpenIcon />, label: '数据库管理' },
         ],
       },
     ];

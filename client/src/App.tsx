@@ -16,7 +16,7 @@ import { ActiveSessions } from './pages/ActiveSessions';
 import { Profile } from './pages/Profile';
 import { ForcePasswordChange } from './pages/ForcePasswordChange';
 import { SecuritySettings } from './pages/SecuritySettings';
-import { DatabaseQuery } from './pages/DatabaseQuery';
+import { DatabaseWorkspace } from './pages/DatabaseWorkspace';
 import { NotFound } from './pages/NotFound';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; allowMfaSetup?: boolean }> = ({ children, allowMfaSetup }) => {
@@ -100,7 +100,8 @@ function App() {
             <Route path="replay/:id" element={<ComplianceRoute><SessionReplay /></ComplianceRoute>} />
 
             <Route path="assets" element={<AdminRoute><Assets /></AdminRoute>} />
-            <Route path="database/:id" element={<ProtectedRoute><DatabaseQuery /></ProtectedRoute>} />
+            <Route path="database" element={<ProtectedRoute><DatabaseWorkspace /></ProtectedRoute>} />
+            <Route path="database/:id" element={<ProtectedRoute><DatabaseWorkspace /></ProtectedRoute>} />
             <Route path="users" element={<AdminRoute><Users /></AdminRoute>} />
             <Route path="authorizations" element={<AdminRoute><Authorizations /></AdminRoute>} />
             <Route path="sessions" element={<AdminRoute><ActiveSessions /></AdminRoute>} />
