@@ -22,13 +22,16 @@ const createAssetSchema = z.object({
   name: z.string().min(1).max(128),
   host: z.string().min(1).max(255),
   port: z.number().int().min(1).max(65535),
-  protocol: z.enum(['ssh', 'rdp']),
+  protocol: z.enum(['ssh', 'rdp']).optional(),
+  asset_type: z.enum(['host', 'database']).default('host'),
   username: z.string().max(64).optional().nullable(),
   password: z.string().max(256).optional().nullable(),
   private_key: z.string().optional().nullable(),
   group_name: z.string().max(64).default('default'),
   description: z.string().max(512).optional().nullable(),
   recording_enabled: z.boolean().optional(),
+  db_type: z.enum(['mssql', 'mysql', 'postgresql']).optional(),
+  database_name: z.string().max(128).optional(),
 });
 
 const updateAssetSchema = createAssetSchema.partial();
@@ -160,16 +163,18 @@ router.get('/:id', async (req: Request, res: Response) => {
 // ---- POST /api/assets (admin only) ----
 router.post('/', requireAdmin, validate(createAssetSchema), async (req: Request, res: Response) => {
   try {
-    const { name, host, port, protocol, username, password, private_key, group_name, description, recording_enabled } = req.body;
+    const { name, host, port, protocol, username, password, private_key, group_name, description, recording_enabled, asset_type, db_type, database_name } = req.body;
 
     const passwordEncrypted = password ? encrypt(password) : null;
     const privateKeyEncrypted = private_key ? encrypt(private_key) : null;
     const recordingFlag = recording_enabled === false ? 0 : 1;
+    const assetType = asset_type || 'host';
+    const proto = protocol || (assetType === 'database' ? 'ssh' : 'ssh');
 
     const [result] = await pool.query<any>(
-      `INSERT INTO assets (name, host, port, protocol, username, password_encrypted, private_key_encrypted, group_name, description, recording_enabled)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, host, port, protocol, username || null, passwordEncrypted, privateKeyEncrypted, group_name, description || null, recordingFlag]
+      `INSERT INTO assets (name, host, port, protocol, asset_type, db_type, database_name, username, password_encrypted, private_key_encrypted, group_name, description, recording_enabled)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, host, port, proto, assetType, db_type || null, database_name || null, username || null, passwordEncrypted, privateKeyEncrypted, group_name, description || null, recordingFlag]
     );
 
     await recordAudit({

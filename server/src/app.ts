@@ -9,6 +9,7 @@ import authorizationsRoutes from './routes/authorizations';
 import sessionsRoutes from './routes/sessions';
 import auditRoutes from './routes/audit';
 import securityRoutes from './routes/security';
+import databaseRoutes from './routes/database';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter } from './middleware/rateLimiter';
 import pool from './database/connection';
@@ -48,6 +49,7 @@ app.use('/api/sessions', sessionsRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/security', securityRoutes);
 app.use('/api', securityRoutes);  // also mount at /api for /api/notifications etc.
+app.use('/api/database', databaseRoutes);
 
 // ---- Dashboard stats ----
 app.get('/api/dashboard/stats', async (_req, res) => {

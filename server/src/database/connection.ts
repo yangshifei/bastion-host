@@ -169,6 +169,54 @@ async function runMigrations(): Promise<void> {
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     'table email_mfa_codes'
   );
+
+  // ── 005-database-asset-management ──
+  await safeAlter(
+    `ALTER TABLE assets ADD COLUMN asset_type ENUM('host','database') NOT NULL DEFAULT 'host' COMMENT '资产类型：主机/数据库'`,
+    'assets.asset_type'
+  );
+  await safeAlter(
+    `ALTER TABLE assets ADD COLUMN db_type ENUM('mssql','mysql','postgresql') DEFAULT NULL COMMENT '数据库类型'`,
+    'assets.db_type'
+  );
+  await safeAlter(
+    `ALTER TABLE assets ADD COLUMN database_name VARCHAR(128) DEFAULT NULL COMMENT '数据库名'`,
+    'assets.database_name'
+  );
+
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS query_history (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL,
+       asset_id INT NOT NULL,
+       query_text TEXT NOT NULL,
+       db_name VARCHAR(128) DEFAULT NULL,
+       status ENUM('success','error') NOT NULL,
+       row_count INT DEFAULT NULL,
+       duration_ms INT DEFAULT NULL,
+       error_message TEXT DEFAULT NULL,
+       executed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+       FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+       INDEX idx_user_time (user_id, executed_at DESC)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table query_history'
+  );
+
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS saved_queries (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL,
+       asset_id INT DEFAULT NULL,
+       name VARCHAR(128) NOT NULL,
+       query_text TEXT NOT NULL,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+       INDEX idx_user (user_id)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table saved_queries'
+  );
 }
 
 export default pool;
