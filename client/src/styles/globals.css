@@ -605,3 +605,141 @@ html[theme-mode='light'] .t-table th { background: rgba(0,0,0,0.02) !important; 
   border-radius: 6px !important;
   margin: 2px 6px !important;
 }
+
+/* ===== DMC Database Workspace ===== */
+.dmc-workspace {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 52px);
+  min-height: 0;
+  margin: -20px;
+  background: var(--bg-page);
+}
+
+.dmc-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  height: 48px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.dmc-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.dmc-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.dmc-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dmc-editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+}
+
+.dmc-sql-editor {
+  width: 100%;
+  min-height: 140px;
+  max-height: 220px;
+  padding: 12px 14px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--bg-deep);
+  border: none;
+  outline: none;
+  resize: vertical;
+}
+
+.dmc-result-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.dmc-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  padding: 0 8px;
+}
+
+.dmc-tab {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.dmc-tab:hover {
+  color: var(--text-secondary);
+}
+
+.dmc-tab--active {
+  color: #22d3ee;
+  border-bottom-color: #22d3ee;
+}
+
+.dmc-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.dmc-tree-node:hover {
+  background: var(--bg-elevated);
+}
+
+.dmc-tree-node--active {
+  background: rgba(34, 211, 238, 0.1);
+  color: #22d3ee;
+}
+
+.dmc-tree-children {
+  padding-left: 14px;
+}
+
+.dmc-ddl-block {
+  margin: 0;
+  padding: 12px 14px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow: auto;
+}

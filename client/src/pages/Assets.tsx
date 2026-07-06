@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { Link } from 'react-router-dom';
 import { EnhancedTable, Button, Dialog, Form, Input, Select, Tag, Space, Upload, MessagePlugin, Popconfirm } from 'tdesign-react';
 import {
   AddIcon,
@@ -13,7 +12,6 @@ import {
   TerminalIcon,
   DesktopIcon,
   CheckCircleIcon,
-  PlayCircleIcon,
 } from 'tdesign-icons-react';
 import { assetService, AssetQuery } from '../services/assetService';
 import api from '../services/api';
@@ -276,6 +274,16 @@ export const Assets: React.FC = () => {
     }
   };
 
+  const handleDbTest = async (id: number) => {
+    setTesting(id);
+    try {
+      const res = await api.post(`/database/${id}/test`);
+      if (res.data?.code === 0) MessagePlugin.success('连接成功');
+      else MessagePlugin.warning(res.data?.message || '连接失败');
+    } catch { MessagePlugin.error('测试失败'); }
+    finally { setTesting(null); }
+  };
+
   const handleTestConnection = async () => {
     setTestLoading(true);
     setTestResult(null);
@@ -424,9 +432,7 @@ export const Assets: React.FC = () => {
           <Space size="small">
             <Button variant="text" size="small" icon={<EditIcon />} onClick={() => openEdit(row)} />
             {isDb ? (
-              <Link to={`/database/${row.id}`}>
-                <Button variant="text" size="small" theme="primary" icon={<PlayCircleIcon />} />
-              </Link>
+              <Button variant="text" size="small" icon={<RefreshIcon />} loading={testing === row.id} onClick={() => handleDbTest(row.id)} />
             ) : (
               <Button variant="text" size="small" icon={<RefreshIcon />} loading={testing === row.id} onClick={() => handleTest(row.id)} />
             )}

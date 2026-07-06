@@ -63,6 +63,20 @@ router.post('/0/test', async (req: Request, _res: Response) => {
       await c.connect(); await c.query('SELECT 1'); c.end();
       _res.json({ code: 0, message: '连接成功', data: { success: true } });
     } else if (db_type === 'mssql') {
+      const mssql = require('mssql');
+      const pool = await mssql.connect({
+        server: host,
+        port: port || 1433,
+        database: dbName,
+        user,
+        password,
+        options: { encrypt: false, trustServerCertificate: true, connectTimeout: 5000 },
+      });
+      try {
+        await pool.request().query('SELECT 1 AS ok');
+      } finally {
+        await pool.close();
+      }
       _res.json({ code: 0, message: '连接成功', data: { success: true } });
     } else {
       _res.json({ code: 1, message: '不支持的数据库类型: ' + db_type });
@@ -92,6 +106,72 @@ router.get('/:id/table/:table', async (req: Request, res: Response) => {
   try {
     const info = await dbQueryService.getTableInfo(parseInt(req.params.id as string), req.params.table as string);
     success(res, info);
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+
+// GET /api/database/:id/sessions
+router.get('/:id/sessions', async (req: Request, res: Response) => {
+  try {
+    const sessions = await dbQueryService.getSessions(parseInt(req.params.id as string));
+    success(res, sessions);
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+
+// DELETE /api/database/:id/sessions/:sessionId
+router.delete('/:id/sessions/:sessionId', async (req: Request, res: Response) => {
+  try {
+    const assetId = parseInt(req.params.id as string);
+    const sessionId = parseInt(req.params.sessionId as string);
+    await dbQueryService.killSession(assetId, sessionId);
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'db_kill_session',
+      targetType: 'database_asset',
+      targetId: assetId,
+      detail: { sessionId },
+    });
+    success(res, null, '会话已终止');
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+
+// POST /api/database/:id/export
+router.post('/:id/export', async (req: Request, res: Response) => {
+  try {
+    const assetId = parseInt(req.params.id as string);
+    const { table, format, limit } = req.body;
+    if (!table?.trim()) { error(res, '请指定表名', 1, 400); return; }
+    if (format !== 'csv' && format !== 'sql') { error(res, 'format 须为 csv 或 sql', 1, 400); return; }
+
+    const result = await dbQueryService.exportTable(assetId, table.trim(), format, limit);
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'db_export',
+      targetType: 'database_asset',
+      targetId: assetId,
+      detail: { table, format, rowCount: result.rowCount },
+    });
+    success(res, result);
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+
+// POST /api/database/:id/import
+router.post('/:id/import', async (req: Request, res: Response) => {
+  try {
+    const assetId = parseInt(req.params.id as string);
+    const { table, format, content } = req.body;
+    if (!table?.trim()) { error(res, '请指定表名', 1, 400); return; }
+    if (format !== 'csv' && format !== 'sql') { error(res, 'format 须为 csv 或 sql', 1, 400); return; }
+    if (!content?.trim()) { error(res, '导入内容不能为空', 1, 400); return; }
+
+    const result = await dbQueryService.importData(assetId, table.trim(), format, content);
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'db_import',
+      targetType: 'database_asset',
+      targetId: assetId,
+      detail: { table, format, affectedRows: result.affectedRows },
+    });
+    success(res, result, `导入完成，影响 ${result.affectedRows} 行`);
   } catch (err: any) { error(res, err.message, 1, 500); }
 });
 
