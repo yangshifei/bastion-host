@@ -925,8 +925,10 @@ const DmcWorkspace: React.FC<{
                       key={h.id}
                       className="p-2 rounded border border-[var(--border-subtle)] hover:bg-[var(--bg-elevated)] cursor-pointer"
                       onClick={() => {
-                        setSql(h.query_text);
-                        setResultTab('result');
+                        if (typeof h.query_text === 'string' && h.query_text) {
+                          setSql(h.query_text);
+                          setResultTab('result');
+                        }
                       }}
                     >
                       <p className="text-xs font-mono text-slate-300 truncate">{h.query_text}</p>
