@@ -255,6 +255,7 @@ export const dbQueryService = {
     const conn = await getConnection(assetId);
     const c = await require('mysql2/promise').createConnection({
       host: conn.host, port: conn.port, user: conn.user, password: conn.password,
+      database: conn.database || 'mysql',
       connectTimeout: 5000,
     });
     try {
