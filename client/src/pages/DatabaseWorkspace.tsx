@@ -727,7 +727,12 @@ const DmcWorkspace: React.FC<{
                 </Button>
               </Space>
             </div>
-            <SqlEditor value={sql} onChange={setSql} onExecute={execute} height={180} />
+            <textarea
+              value={sql}
+              onChange={e => setSql(e.target.value)}
+              className="dmc-sql-editor"
+              placeholder="SELECT * FROM ..."
+            />
           </div>
 
           {transferOpen && objects && (
