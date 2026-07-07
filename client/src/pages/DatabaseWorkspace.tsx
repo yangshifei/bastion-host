@@ -730,13 +730,15 @@ const DmcWorkspace: React.FC<{
             <SqlEditor value={sql} onChange={setSql} onExecute={execute} height={180} />
           </div>
 
-          <DmcDataTransfer
-            visible={transferOpen}
-            assetId={selected.id}
-            tables={objects?.tables || []}
-            defaultTable={selectedTable || undefined}
-            onClose={() => setTransferOpen(false)}
-          />
+          {transferOpen && objects && (
+            <DmcDataTransfer
+              visible={transferOpen}
+              assetId={selected.id}
+              tables={objects.tables || []}
+              defaultTable={selectedTable || undefined}
+              onClose={() => setTransferOpen(false)}
+            />
+          )}
 
           <div className="dmc-result-panel">
             <div className="dmc-tabs">
