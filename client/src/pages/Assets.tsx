@@ -592,7 +592,7 @@ export const Assets: React.FC = () => {
                   ]}
                 />
               </FormItem>
-              <FormItem label="数据库名">
+              <FormItem label="数据库名" rules={[{ required: true, message: '请输入数据库名' }]}>
                 <Input value={formData.database_name} onChange={(v) => setFormData({ ...formData, database_name: v })} placeholder="输入数据库名称" />
               </FormItem>
               <FormItem label=" ">

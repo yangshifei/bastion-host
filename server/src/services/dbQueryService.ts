@@ -134,9 +134,11 @@ async function getConnection(assetId: number): Promise<DbConnection> {
   );
   if (rows.length === 0) throw new Error('数据库资产不存在或已删除');
   const a = rows[0];
+  if (!a.database_name) throw new Error('该资产未设置数据库名，请编辑资产填写数据库名字段');
   return {
     host: a.host, port: a.port, dbType: a.db_type,
-    database: a.database_name, user: a.username,
+    database: a.database_name,
+    user: a.username,
     password: a.password_encrypted ? decrypt(a.password_encrypted) : '',
   };
 }
