@@ -285,7 +285,7 @@ export const dbQueryService = {
       }
       case 'postgresql': {
         const pg = require('pg');
-        const c = new pg.Client({ host: conn.host, port: conn.port, user: conn.user, password: conn.password, database: conn.database, connectionTimeoutMillis: 5000 });
+        const c = new pg.Client({ host: conn.host, port: conn.port, user: conn.user, password: conn.password, database: db, connectionTimeoutMillis: 5000 });
         try {
           await c.connect();
           const tables = await c.query(`SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public'`);
@@ -300,7 +300,7 @@ export const dbQueryService = {
       }
       case 'mssql': {
         return withMssql(conn, async (pool, sql) => {
-          const db = conn.database;
+          const mssqlDb = db;
           const tables = await pool.request()
             .input('db', sql.NVarChar, db)
             .query(`SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_CATALOG = @db ORDER BY TABLE_NAME`);
