@@ -202,10 +202,11 @@ async function queryPostgres(conn: DbConnection, sql: string): Promise<QueryResu
 }
 
 export const dbQueryService = {
-  async execute(assetId: number, sql: string): Promise<QueryResult> {
+  async execute(assetId: number, sql: string, database?: string): Promise<QueryResult> {
     const conn = await getConnection(assetId);
+    if (database) conn.database = database;
     const trimmed = sql.trim();
-    if (!trimmed) throw new Error('SQL 语句不能为空');
+    if (!trimmed || !conn.database) throw new Error(!conn.database ? 'No database selected' : 'SQL 语句不能为空');
 
     // Detect multiple statements
     if (/;\s*\S/.test(trimmed.replace(/;\s*$/, ''))) {

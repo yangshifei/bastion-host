@@ -504,7 +504,7 @@ const DmcWorkspace: React.FC<{
     setResults(null);
     setResultTab('result');
     try {
-      const res = await databaseService.execute(selected.id, trimmed);
+      const res = await databaseService.execute(selected.id, trimmed, selectedDb);
       if (res.code === 0 && res.data) {
         setResults(res.data);
         loadHistory();

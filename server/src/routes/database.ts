@@ -13,10 +13,10 @@ router.use(authenticate);
 router.post('/:id/execute', async (req: Request, res: Response) => {
   try {
     const assetId = parseInt(req.params.id as string);
-    const { sql } = req.body;
+    const { sql, database } = req.body;
     if (!sql?.trim()) { error(res, 'SQL 语句不能为空', 1, 400); return; }
 
-    const result = await dbQueryService.execute(assetId, sql.trim());
+    const result = await dbQueryService.execute(assetId, sql.trim(), database);
 
     // Log to audit
     await recordAudit({

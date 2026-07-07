@@ -64,8 +64,8 @@ export interface ExportResult {
 }
 
 export const databaseService = {
-  execute(assetId: number, sql: string): Promise<ApiResponse<DbQueryResult>> {
-    return api.post(`/database/${assetId}/execute`, { sql }).then((r) => r.data);
+  execute(assetId: number, sql: string, database?: string): Promise<ApiResponse<DbQueryResult>> {
+    return api.post(`/database/${assetId}/execute`, { sql, database }).then((r) => r.data);
   },
 
   testConnection(assetId: number): Promise<ApiResponse<{ success: boolean; message: string }>> {
