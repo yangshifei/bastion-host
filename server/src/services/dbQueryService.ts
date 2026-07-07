@@ -253,17 +253,42 @@ export const dbQueryService = {
 
   async listDatabases(assetId: number): Promise<string[]> {
     const conn = await getConnection(assetId);
-    const c = await require('mysql2/promise').createConnection({
-      host: conn.host, port: conn.port, user: conn.user, password: conn.password,
-      database: conn.database || 'mysql',
-      connectTimeout: 5000,
-    });
-    try {
-      const [rows] = await c.query('SHOW DATABASES');
-      return (rows as any[]).map(r => r.Database).filter((d: string) =>
-        !['information_schema', 'performance_schema', 'mysql', 'sys'].includes(d)
-      );
-    } finally { c.end(); }
+    switch (conn.dbType) {
+      case 'mysql': {
+        const mysql2 = require('mysql2/promise');
+        const c = await mysql2.createConnection({
+          host: conn.host, port: conn.port, user: conn.user, password: conn.password,
+          database: conn.database || 'mysql', connectTimeout: 5000,
+        });
+        try {
+          const [rows] = await c.query('SHOW DATABASES');
+          return (rows as any[]).map((r: any) => r.Database).filter((d: string) =>
+            !['information_schema', 'performance_schema', 'mysql', 'sys'].includes(d)
+          );
+        } finally { c.end(); }
+      }
+      case 'postgresql': {
+        const pg = require('pg');
+        const c = new pg.Client({
+          host: conn.host, port: conn.port, user: conn.user, password: conn.password,
+          database: conn.database || 'postgres', connectionTimeoutMillis: 5000,
+        });
+        try {
+          await c.connect();
+          const r = await c.query(`SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname`);
+          await c.end();
+          return r.rows.map((row: any) => row.datname);
+        } catch { if (c) try { c.end(); } catch { /* */ } return []; }
+      }
+      case 'mssql': {
+        return withMssql(conn, async (pool) => {
+          const r = await pool.request().query(`SELECT name FROM sys.databases WHERE database_id > 4 AND state = 0 ORDER BY name`);
+          return (r.recordset || []).map((row: any) => row.name);
+        });
+      }
+      default:
+        return [];
+    }
   },
 
   async getObjects(assetId: number, database?: string): Promise<{ tables: string[]; views: string[]; procedures: string[] }> {
