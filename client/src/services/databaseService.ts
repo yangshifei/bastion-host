@@ -72,8 +72,13 @@ export const databaseService = {
     return api.post(`/database/${assetId}/test`).then((r) => r.data);
   },
 
-  getObjects(assetId: number): Promise<ApiResponse<DbObjects>> {
-    return api.get(`/database/${assetId}/objects`).then((r) => r.data);
+  listDatabases(assetId: number): Promise<ApiResponse<string[]>> {
+    return api.get(`/database/${assetId}/databases`).then((r) => r.data);
+  },
+
+  getObjects(assetId: number, database?: string): Promise<ApiResponse<DbObjects>> {
+    const p = database ? `?database=${encodeURIComponent(database)}` : '';
+    return api.get(`/database/${assetId}/objects${p}`).then((r) => r.data);
   },
 
   getTableInfo(assetId: number, table: string): Promise<ApiResponse<DbTableInfo>> {

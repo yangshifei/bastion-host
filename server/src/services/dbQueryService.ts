@@ -134,10 +134,9 @@ async function getConnection(assetId: number): Promise<DbConnection> {
   );
   if (rows.length === 0) throw new Error('数据库资产不存在或已删除');
   const a = rows[0];
-  if (!a.database_name) throw new Error('该资产未设置数据库名，请编辑资产填写数据库名字段');
   return {
     host: a.host, port: a.port, dbType: a.db_type,
-    database: a.database_name,
+    database: a.database_name || '',
     user: a.username,
     password: a.password_encrypted ? decrypt(a.password_encrypted) : '',
   };
@@ -251,16 +250,32 @@ export const dbQueryService = {
     }
   },
 
-  async getObjects(assetId: number): Promise<{ tables: string[]; views: string[]; procedures: string[] }> {
+  async listDatabases(assetId: number): Promise<string[]> {
     const conn = await getConnection(assetId);
+    const c = await require('mysql2/promise').createConnection({
+      host: conn.host, port: conn.port, user: conn.user, password: conn.password,
+      connectTimeout: 5000,
+    });
+    try {
+      const [rows] = await c.query('SHOW DATABASES');
+      return (rows as any[]).map(r => r.Database).filter((d: string) =>
+        !['information_schema', 'performance_schema', 'mysql', 'sys'].includes(d)
+      );
+    } finally { c.end(); }
+  },
+
+  async getObjects(assetId: number, database?: string): Promise<{ tables: string[]; views: string[]; procedures: string[] }> {
+    const conn = await getConnection(assetId);
+    const db = database || conn.database;
+    if (!db) throw new Error('请先选择数据库');
     switch (conn.dbType) {
       case 'mysql': {
         const mysql2 = require('mysql2/promise');
-        const c = await mysql2.createConnection({ host: conn.host, port: conn.port, user: conn.user, password: conn.password, database: conn.database, connectTimeout: 5000 });
+        const c = await mysql2.createConnection({ host: conn.host, port: conn.port, user: conn.user, password: conn.password, database: db, connectTimeout: 5000 });
         try {
-          const [tables] = await c.query(`SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'`, [conn.database]);
-          const [views] = await c.query(`SELECT TABLE_NAME FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = ?`, [conn.database]);
-          const [procs] = await c.query(`SELECT ROUTINE_NAME FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_SCHEMA = ?`, [conn.database]);
+          const [tables] = await c.query(`SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'`, [db]);
+          const [views] = await c.query(`SELECT TABLE_NAME FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = ?`, [db]);
+          const [procs] = await c.query(`SELECT ROUTINE_NAME FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_SCHEMA = ?`, [db]);
           return {
             tables: (tables as any[]).map(r => r.TABLE_NAME),
             views: (views as any[]).map(r => r.TABLE_NAME),

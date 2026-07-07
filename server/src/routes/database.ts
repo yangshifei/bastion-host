@@ -93,10 +93,19 @@ router.post('/:id/test', async (req: Request, res: Response) => {
   } catch (err: any) { error(res, err.message, 1, 500); }
 });
 
+// GET /api/database/:id/databases
+router.get('/:id/databases', async (req: Request, res: Response) => {
+  try {
+    const dbs = await dbQueryService.listDatabases(parseInt(req.params.id as string));
+    success(res, dbs);
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+
 // GET /api/database/:id/objects
 router.get('/:id/objects', async (req: Request, res: Response) => {
   try {
-    const objects = await dbQueryService.getObjects(parseInt(req.params.id as string));
+    const db = req.query.database as string | undefined;
+    const objects = await dbQueryService.getObjects(parseInt(req.params.id as string), db);
     success(res, objects);
   } catch (err: any) { error(res, err.message, 1, 500); }
 });
