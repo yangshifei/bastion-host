@@ -5,7 +5,6 @@ import { recordAudit, auditFromReq } from '../middleware/audit';
 import logger from '../utils/logger';
 import { success, error } from '../utils/response';
 import pool from '../database/connection';
-import logger from '../utils/logger';
 
 const router = Router();
 router.use(authenticate);
