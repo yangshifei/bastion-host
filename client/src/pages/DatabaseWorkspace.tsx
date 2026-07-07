@@ -523,7 +523,7 @@ const DmcWorkspace: React.FC<{
 
   const loadTableInfo = async (name: string) => {
     try {
-      const res = await databaseService.getTableInfo(selected.id, name);
+      const res = await databaseService.getTableInfo(selected.id, name, selectedDb);
       if (res.code === 0 && res.data) {
         setTableInfo(res.data);
         setResultTab('structure');

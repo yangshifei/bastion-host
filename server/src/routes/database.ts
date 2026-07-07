@@ -113,7 +113,8 @@ router.get('/:id/objects', async (req: Request, res: Response) => {
 // GET /api/database/:id/table/:table
 router.get('/:id/table/:table', async (req: Request, res: Response) => {
   try {
-    const info = await dbQueryService.getTableInfo(parseInt(req.params.id as string), req.params.table as string);
+    const db = req.query.database as string | undefined;
+    const info = await dbQueryService.getTableInfo(parseInt(req.params.id as string), req.params.table as string, db);
     success(res, info);
   } catch (err: any) { error(res, err.message, 1, 500); }
 });

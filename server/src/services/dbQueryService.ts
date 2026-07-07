@@ -323,21 +323,23 @@ export const dbQueryService = {
     }
   },
 
-  async getTableInfo(assetId: number, tableName: string): Promise<{ columns: any[]; ddl: string }> {
+  async getTableInfo(assetId: number, tableName: string, database?: string): Promise<{ columns: any[]; ddl: string }> {
     const conn = await getConnection(assetId);
+    const db = database || conn.database;
+    if (!db) throw new Error('请先选择数据库');
     switch (conn.dbType) {
       case 'mysql': {
         const mysql2 = require('mysql2/promise');
-        const c = await mysql2.createConnection({ host: conn.host, port: conn.port, user: conn.user, password: conn.password, database: conn.database, connectTimeout: 5000 });
+        const c = await mysql2.createConnection({ host: conn.host, port: conn.port, user: conn.user, password: conn.password, database: db, connectTimeout: 5000 });
         try {
-          const [cols] = await c.query(`SELECT COLUMN_NAME as name, COLUMN_TYPE as type, IS_NULLABLE as nullable, COLUMN_DEFAULT as default_val, COLUMN_KEY as key_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`, [conn.database, tableName]);
+          const [cols] = await c.query(`SELECT COLUMN_NAME as name, COLUMN_TYPE as type, IS_NULLABLE as nullable, COLUMN_DEFAULT as default_val, COLUMN_KEY as key_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`, [db, tableName]);
           const [ddl] = await c.query(`SHOW CREATE TABLE \`${tableName}\``);
           return { columns: cols as any[], ddl: (ddl as any[])[0]?.['Create Table'] || '' };
         } finally { c.end(); }
       }
       case 'postgresql': {
         const pg = require('pg');
-        const c = new pg.Client({ host: conn.host, port: conn.port, user: conn.user, password: conn.password, database: conn.database, connectionTimeoutMillis: 5000 });
+        const c = new pg.Client({ host: conn.host, port: conn.port, user: conn.user, password: conn.password, database: db, connectionTimeoutMillis: 5000 });
         try {
           await c.connect();
           const cols = await c.query(
