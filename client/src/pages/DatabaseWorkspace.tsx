@@ -392,6 +392,8 @@ const DmcWorkspace: React.FC<{
   const [executing, setExecuting] = useState(false);
   const [objects, setObjects] = useState<DbObjects | null>(null);
   const [objectsLoading, setObjectsLoading] = useState(false);
+  const [databases, setDatabases] = useState<string[]>([]);
+  const [selectedDb, setSelectedDb] = useState<string>(dbName);
   const [treeFilter, setTreeFilter] = useState('');
   const [expanded, setExpanded] = useState<Record<TreeSection, boolean>>({
     tables: true,
@@ -411,17 +413,30 @@ const DmcWorkspace: React.FC<{
   const [killingId, setKillingId] = useState<number | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
 
+  const loadDatabases = useCallback(async () => {
+    try {
+      const res = await databaseService.listDatabases(selected.id);
+      if (res.code === 0 && res.data) {
+        setDatabases(res.data);
+        // Auto-select if only one DB or dbName matches
+        if (!selectedDb && res.data.length === 1) setSelectedDb(res.data[0]);
+        if (dbName && res.data.includes(dbName)) setSelectedDb(dbName);
+      }
+    } catch { /* ignore */ }
+  }, [selected.id, selectedDb, dbName]);
+
   const loadObjects = useCallback(async () => {
+    if (!selectedDb) return;
     setObjectsLoading(true);
     try {
-      const res = await databaseService.getObjects(selected.id);
+      const res = await databaseService.getObjects(selected.id, selectedDb);
       if (res.code === 0 && res.data) setObjects(res.data);
     } catch {
       MessagePlugin.error('加载对象列表失败');
     } finally {
       setObjectsLoading(false);
     }
-  }, [selected.id]);
+  }, [selected.id, selectedDb]);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -467,6 +482,7 @@ const DmcWorkspace: React.FC<{
   };
 
   useEffect(() => {
+    loadDatabases();
     loadObjects();
     loadHistory();
     loadSaved();
@@ -475,7 +491,7 @@ const DmcWorkspace: React.FC<{
     setTableInfo(null);
     setSelectedTable(null);
     setConnOk(null);
-  }, [selected.id, loadObjects, loadHistory, loadSaved]);
+  }, [selected.id, loadDatabases, loadObjects, loadHistory, loadSaved, selectedDb]);
 
   const execute = async () => {
     const trimmed = sql.trim().replace(/;+$/, '');
@@ -610,6 +626,17 @@ const DmcWorkspace: React.FC<{
               <option key={a.id} value={a.id}>
                 {a.name}
               </option>
+            ))}
+          </select>
+          <select
+            value={selectedDb || ''}
+            onChange={(e) => setSelectedDb(e.target.value)}
+            className="dmc-selector"
+            style={{ minWidth: 120 }}
+          >
+            <option value="">-- 选择数据库 --</option>
+            {databases.map((d) => (
+              <option key={d} value={d}>{d}</option>
             ))}
           </select>
           <Button variant="outline" size="small" icon={<LinkIcon />} onClick={testConn}>
