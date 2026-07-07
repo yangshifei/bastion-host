@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { authenticate } from '../middleware/auth';
 import { dbQueryService } from '../services/dbQueryService';
 import { recordAudit, auditFromReq } from '../middleware/audit';
+import logger from '../utils/logger';
 import { success, error } from '../utils/response';
 import pool from '../database/connection';
 import logger from '../utils/logger';
@@ -98,7 +99,7 @@ router.get('/:id/databases', async (req: Request, res: Response) => {
   try {
     const dbs = await dbQueryService.listDatabases(parseInt(req.params.id as string));
     success(res, dbs);
-  } catch (err: any) { error(res, err.message, 1, 500); }
+  } catch (err: any) { logger.error({ err: err.message }, 'listDatabases failed'); error(res, err.message, 1, 500); }
 });
 
 // GET /api/database/:id/objects
@@ -107,7 +108,7 @@ router.get('/:id/objects', async (req: Request, res: Response) => {
     const db = req.query.database as string | undefined;
     const objects = await dbQueryService.getObjects(parseInt(req.params.id as string), db);
     success(res, objects);
-  } catch (err: any) { error(res, err.message, 1, 500); }
+  } catch (err: any) { logger.error({ err: err.message }, 'getObjects failed'); error(res, err.message, 1, 500); }
 });
 
 // GET /api/database/:id/table/:table
