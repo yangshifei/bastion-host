@@ -20,8 +20,30 @@ const app = express();
 app.set('trust proxy', 1);
 
 // ---- Security headers ----
+// Disable HSTS / upgrade-insecure-requests on plain HTTP (e.g. LAN IP access).
+// Enable via ENABLE_HSTS=1 when terminating TLS at nginx/reverse proxy.
+const enableHsts = process.env.ENABLE_HSTS === '1';
+
+const cspDirectives: Record<string, string[] | null> = {
+  defaultSrc: ["'self'"],
+  scriptSrc: ["'self'", "'unsafe-eval'"],
+  styleSrc: ["'self'", "'unsafe-inline'"],
+  imgSrc: ["'self'", "data:", "blob:"],
+  connectSrc: ["'self'", "ws:", "wss:"],
+  fontSrc: ["'self'", "data:"],
+  workerSrc: ["'self'", "blob:"],
+};
+if (!enableHsts) {
+  cspDirectives.upgradeInsecureRequests = null;
+}
+
 app.use(helmet({
-  contentSecurityPolicy: false, // Allow xterm.js inline styles
+  strictTransportSecurity: enableHsts,
+  contentSecurityPolicy: {
+    directives: cspDirectives,
+  },
+  crossOriginOpenerPolicy: false,
+  originAgentCluster: false,
 }));
 app.use(cookieParser());
 

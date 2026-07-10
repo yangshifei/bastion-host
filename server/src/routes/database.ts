@@ -110,6 +110,15 @@ router.get('/:id/objects', async (req: Request, res: Response) => {
   } catch (err: any) { logger.error({ err: err.message }, 'getObjects failed'); error(res, err.message, 1, 500); }
 });
 
+// GET /api/database/:id/schema
+router.get('/:id/schema', async (req: Request, res: Response) => {
+  try {
+    const db = req.query.database as string | undefined;
+    const schema = await dbQueryService.getSchema(parseInt(req.params.id as string), db);
+    success(res, schema);
+  } catch (err: any) { logger.error({ err: err.message }, 'getSchema failed'); error(res, err.message, 1, 500); }
+});
+
 // GET /api/database/:id/table/:table
 router.get('/:id/table/:table', async (req: Request, res: Response) => {
   try {

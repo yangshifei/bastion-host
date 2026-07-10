@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Button,
@@ -9,6 +9,7 @@ import {
   Space,
   Popconfirm,
   Loading,
+  Select,
 } from 'tdesign-react';
 import {
   PlayCircleIcon,
@@ -36,12 +37,16 @@ import {
   type DbTableInfo,
   type QueryHistoryItem,
   type SavedQueryItem,
+  type DbSchema,
 } from '../services/databaseService';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState } from '../components/EmptyState';
 import { StatCard } from '../components/StatCard';
 import { SqlEditor } from '../components/SqlEditor';
+import { DmcScrollTable } from '../components/DmcScrollTable';
 import { DmcDataTransfer } from '../components/DmcDataTransfer';
+import { getSqlToExecute } from '../utils/sqlStatement';
+import type { editor } from 'monaco-editor';
 import type { SafeAsset } from '../types';
 import type { DbSession } from '../services/databaseService';
 
@@ -412,18 +417,28 @@ const DmcWorkspace: React.FC<{
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [killingId, setKillingId] = useState<number | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
+  const [schema, setSchema] = useState<DbSchema | null>(null);
+  const [schemaDegraded, setSchemaDegraded] = useState(false);
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const selectedDbRef = useRef(selectedDb);
+  selectedDbRef.current = selectedDb;
 
   const loadDatabases = useCallback(async () => {
     try {
       const res = await databaseService.listDatabases(selected.id);
       if (res.code === 0 && res.data) {
         setDatabases(res.data);
-        // Auto-select if only one DB or dbName matches
-        if (!selectedDb && res.data.length === 1) setSelectedDb(res.data[0]);
-        if (dbName && res.data.includes(dbName)) setSelectedDb(dbName);
+        // Auto-select only when nothing is selected yet
+        if (!selectedDbRef.current) {
+          if (res.data.length === 1) {
+            setSelectedDb(res.data[0]);
+          } else if (dbName && res.data.includes(dbName)) {
+            setSelectedDb(dbName);
+          }
+        }
       }
     } catch { /* ignore */ }
-  }, [selected.id, selectedDb, dbName]);
+  }, [selected.id, dbName]);
 
   const loadObjects = useCallback(async () => {
     if (!selectedDb) return;
@@ -435,6 +450,19 @@ const DmcWorkspace: React.FC<{
       MessagePlugin.error('加载对象列表失败');
     } finally {
       setObjectsLoading(false);
+    }
+  }, [selected.id, selectedDb]);
+
+  const loadSchema = useCallback(async () => {
+    if (!selectedDb) return;
+    try {
+      const res = await databaseService.getSchema(selected.id, selectedDb);
+      if (res.code === 0 && res.data) {
+        setSchema(res.data);
+        setSchemaDegraded(false);
+      }
+    } catch {
+      setSchemaDegraded(true);
     }
   }, [selected.id, selectedDb]);
 
@@ -484,6 +512,7 @@ const DmcWorkspace: React.FC<{
   useEffect(() => {
     loadDatabases();
     loadObjects();
+    loadSchema();
     loadHistory();
     loadSaved();
     setResults(null);
@@ -491,11 +520,20 @@ const DmcWorkspace: React.FC<{
     setTableInfo(null);
     setSelectedTable(null);
     setConnOk(null);
-  }, [selected.id, loadDatabases, loadObjects, loadHistory, loadSaved, selectedDb]);
+  }, [selected.id, loadDatabases, loadObjects, loadSchema, loadHistory, loadSaved, selectedDb]);
 
-  const execute = async () => {
-    const trimmed = sql.trim().replace(/;+$/, '');
-    if (!trimmed) {
+  const runExecute = () => {
+    const sqlToExec = getSqlToExecute(editorRef.current, sql);
+    if (!sqlToExec) {
+      MessagePlugin.warning('请输入 SQL');
+      return;
+    }
+    execute(sqlToExec);
+  };
+
+  const execute = async (forceSql?: string) => {
+    const sqlToExec = (forceSql ?? sql).trim().replace(/;+$/, '');
+    if (!sqlToExec) {
       MessagePlugin.warning('请输入 SQL');
       return;
     }
@@ -504,7 +542,7 @@ const DmcWorkspace: React.FC<{
     setResults(null);
     setResultTab('result');
     try {
-      const res = await databaseService.execute(selected.id, trimmed, selectedDb);
+      const res = await databaseService.execute(selected.id, sqlToExec, selectedDb);
       if (res.code === 0 && res.data) {
         setResults(res.data);
         loadHistory();
@@ -583,11 +621,22 @@ const DmcWorkspace: React.FC<{
   const assetHistory = history.filter((h) => h.asset_id === selected.id);
   const assetSaved = savedQueries.filter((s) => !s.asset_id || s.asset_id === selected.id);
 
-  const resultColumns = results
-    ? results.columns.length
-      ? results.columns
-      : Object.keys(results.rows[0] || {})
-    : [];
+  const resultColumns = useMemo(() => {
+    if (!results) return [];
+    const rowKeys = results.rows[0] ? Object.keys(results.rows[0]) : [];
+    if (rowKeys.length > 0) return rowKeys;
+    return results.columns;
+  }, [results]);
+
+  const scrollResultColumns = useMemo(
+    () =>
+      resultColumns.map((c) => ({
+        key: c,
+        title: c,
+        width: Math.min(Math.max(String(c).length * 9 + 40, 120), 260),
+      })),
+    [resultColumns],
+  );
 
   const resultTabs: { key: ResultTab; label: string }[] = [
     { key: 'result', label: '执行结果' },
@@ -601,7 +650,7 @@ const DmcWorkspace: React.FC<{
   return (
     <div className="dmc-workspace">
       <div className="dmc-topbar">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="dmc-topbar-left">
           <Button variant="text" size="small" onClick={onBack}>
             ← 实例列表
           </Button>
@@ -613,40 +662,57 @@ const DmcWorkspace: React.FC<{
           {connOk === true && <Tag theme="success" variant="light" size="small">已连接</Tag>}
           {connOk === false && <Tag theme="danger" variant="light" size="small">连接异常</Tag>}
         </div>
-        <Space size="small">
-          <select
-            className="text-xs bg-[var(--bg-elevated)] text-slate-300 border border-[var(--border-subtle)] rounded px-2 py-1 outline-none"
+        <div className="dmc-topbar-right">
+          <Select
             value={selected.id}
-            onChange={(e) => {
-              const a = assets.find((x) => x.id === parseInt(e.target.value, 10));
+            onChange={(val) => {
+              const a = assets.find((x) => x.id === (val as number));
               if (a) onSwitch(a);
             }}
-          >
-            {assets.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={selectedDb || ''}
-            onChange={(e) => setSelectedDb(e.target.value)}
-            className="dmc-selector"
-            style={{ minWidth: 120 }}
-          >
-            <option value="">-- 选择数据库 --</option>
-            {databases.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
+            options={assets.map((a) => ({
+              label: a.name,
+              value: a.id,
+              content: (
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${DB_META[(a as SafeAsset & { db_type?: string }).db_type || '']?.color || 'bg-slate-500'}`} />
+                  <span className="truncate">{a.name}</span>
+                  <code className="text-[10px] text-slate-500 ml-auto shrink-0 hidden sm:inline truncate">{a.host}</code>
+                </div>
+              ),
+            }))}
+            filterable
+            placeholder="选择实例"
+            size="small"
+            style={{ width: 180 }}
+            popupProps={{ overlayStyle: { maxWidth: 300 } }}
+          />
+          <Select
+            value={selectedDb || undefined}
+            onChange={(val) => setSelectedDb(val as string)}
+            options={databases.map((d) => ({ label: d, value: d }))}
+            filterable
+            placeholder="选择数据库"
+            size="small"
+            style={{ width: 160 }}
+            empty="暂无数据库"
+          />
           <Button variant="outline" size="small" icon={<LinkIcon />} onClick={testConn}>
             测试连接
           </Button>
           <Button variant="outline" size="small" icon={<RefreshIcon />} onClick={loadObjects}>
             刷新对象
           </Button>
-        </Space>
+        </div>
       </div>
+
+      {schemaDegraded && (
+        <div className="flex items-center justify-between px-4 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-400 text-xs">
+          <span>⚠ 表名/字段名提示暂时不可用（元数据加载失败），关键字和函数补全仍可用</span>
+          <Button variant="text" size="small" theme="warning" onClick={() => { setSchemaDegraded(false); if (selectedDb) loadSchema(); }}>
+            重试
+          </Button>
+        </div>
+      )}
 
       <div className="dmc-body">
         <div className="dmc-sidebar">
@@ -681,10 +747,10 @@ const DmcWorkspace: React.FC<{
         </div>
 
         <div className="dmc-main">
-          <div className="shrink-0 border-b border-[var(--border-subtle)]">
+          <div className="dmc-editor-section">
             <div className="dmc-editor-toolbar">
-              <span className="text-xs text-slate-500 font-medium">SQL 窗口</span>
-              <Space size="small">
+              <span className="dmc-toolbar-label">SQL 窗口</span>
+              <div className="dmc-toolbar-actions">
                 {showSaveInput ? (
                   <>
                     <Input
@@ -692,7 +758,7 @@ const DmcWorkspace: React.FC<{
                       value={saveName}
                       onChange={setSaveName}
                       placeholder="查询名称"
-                      style={{ width: 140 }}
+                      style={{ width: 120 }}
                       onEnter={handleSave}
                     />
                     <Button size="small" onClick={handleSave}>
@@ -721,18 +787,24 @@ const DmcWorkspace: React.FC<{
                   size="small"
                   icon={<PlayCircleIcon />}
                   loading={executing}
-                  onClick={execute}
+                  onClick={runExecute}
                 >
-                  执行 Ctrl+Enter
+                  执行
                 </Button>
-              </Space>
+              </div>
             </div>
-            <textarea
-              value={sql}
-              onChange={e => setSql(e.target.value)}
-              className="dmc-sql-editor"
-              placeholder="SELECT * FROM ..."
-            />
+            <div className="dmc-editor-body">
+              <SqlEditor
+                value={sql}
+                onChange={setSql}
+                onExecute={execute}
+                dbType={dbType}
+                schema={schema}
+                height={200}
+                onMount={(ed) => { editorRef.current = ed; }}
+              />
+            </div>
+            <p className="dmc-editor-hint">Ctrl+Enter 执行 · 选中区域执行选中 SQL · 未选中时执行光标所在语句</p>
           </div>
 
           {transferOpen && objects && (
@@ -746,7 +818,8 @@ const DmcWorkspace: React.FC<{
           )}
 
           <div className="dmc-result-panel">
-            <div className="dmc-tabs">
+            <div className="dmc-tabs-wrap">
+              <div className="dmc-tabs">
               {resultTabs.map((t) => (
                 <button
                   key={t.key}
@@ -784,37 +857,44 @@ const DmcWorkspace: React.FC<{
                   </Button>
                 </div>
               ) : null}
+              </div>
             </div>
 
-            <div className="flex-1 overflow-auto min-h-0">
+            <div className="dmc-result-body">
               {resultTab === 'result' && (
                 <>
                   {error && (
                     <div className="p-4 text-sm text-red-400 font-mono whitespace-pre-wrap">{error}</div>
                   )}
-                  {results?.rows?.length ? (
-                    <>
-                      <Table
-                        data={results.rows.map((r, i) => ({ ...r, _idx: i }))}
-                        columns={resultColumns.map((c) => ({
-                          colKey: c,
-                          title: c,
-                          ellipsis: true,
-                          width: 140,
-                        }))}
-                        rowKey="_idx"
-                        size="small"
-                        stripe
-                        hover
-                        bordered
+                  {results ? (
+                    results.rows?.length ? (
+                    <div className="dmc-result-table-area">
+                      <DmcScrollTable
+                        columns={scrollResultColumns}
+                        rows={results.rows}
                       />
                       {results.rows.length >= 200 && (
-                        <p className="text-xs text-amber-400 text-center py-2">
+                        <p className="dmc-result-footnote text-xs text-amber-400 text-center py-2">
                           结果集超过 200 行，仅显示前 200 行
                         </p>
                       )}
-                    </>
+                    </div>
                   ) : (
+                    <div className="p-10 text-center text-xs text-slate-400">
+                      {resultColumns.length > 0 ? (
+                        <>
+                          <div className="mb-2 text-slate-500">
+                            {resultColumns.map((c) => (
+                              <span key={c} className="inline-block px-2 py-0.5 mx-0.5 border border-[var(--border-subtle)] rounded text-[10px] font-mono">{c}</span>
+                            ))}
+                          </div>
+                          <span>查询成功，返回 0 行 · {results.durationMs}ms</span>
+                        </>
+                      ) : (
+                        <span>查询成功，返回 0 行 · {results.durationMs}ms</span>
+                      )}
+                    </div>
+                  )) : (
                     !error && (
                       <div className="p-10 text-center text-xs text-slate-500">
                         在左侧选择表或输入 SQL 后执行
@@ -826,20 +906,19 @@ const DmcWorkspace: React.FC<{
 
               {resultTab === 'structure' && (
                 tableInfo?.columns?.length ? (
-                  <Table
-                    data={tableInfo.columns}
-                    columns={[
-                      { colKey: 'name', title: '列名', width: 150 },
-                      { colKey: 'type', title: '类型', width: 130 },
-                      { colKey: 'nullable', title: '可空', width: 70 },
-                      { colKey: 'key_type', title: '键', width: 70 },
-                      { colKey: 'default_val', title: '默认值', ellipsis: true },
+                  <div className="dmc-result-table-area">
+                    <DmcScrollTable
+                      columns={[
+                      { key: 'name', title: '列名', width: 150 },
+                      { key: 'type', title: '类型', width: 130 },
+                      { key: 'nullable', title: '可空', width: 70 },
+                      { key: 'key_type', title: '键', width: 70 },
+                      { key: 'default_val', title: '默认值', width: 220 },
                     ]}
+                    rows={tableInfo.columns}
                     rowKey="name"
-                    size="small"
-                    stripe
-                    bordered
                   />
+                  </div>
                 ) : (
                   <div className="p-10 text-center text-xs text-slate-500">
                     {selectedTable ? '该表暂无结构信息' : '请在左侧选择一张表'}
@@ -849,17 +928,19 @@ const DmcWorkspace: React.FC<{
 
               {resultTab === 'ddl' && (
                 tableInfo?.ddl ? (
-                  <pre className="dmc-ddl-block">{tableInfo.ddl}</pre>
+                  <div className="dmc-result-scroll-pane">
+                    <pre className="dmc-ddl-block">{tableInfo.ddl}</pre>
+                  </div>
                 ) : (
-                  <div className="p-10 text-center text-xs text-slate-500">
+                  <div className="dmc-result-empty">
                     {selectedTable ? '暂无 DDL' : '请在左侧选择一张表后查看 DDL'}
                   </div>
                 )
               )}
 
               {resultTab === 'sessions' && (
-                <div className="p-2">
-                  <div className="flex items-center justify-between mb-2 px-1">
+                <div className="dmc-result-sessions">
+                  <div className="dmc-result-sessions-bar">
                     <span className="text-xs text-slate-500">当前数据库活跃连接</span>
                     <Button
                       variant="text"
@@ -876,20 +957,19 @@ const DmcWorkspace: React.FC<{
                       <Loading size="small" />
                     </div>
                   ) : sessions.length > 0 ? (
-                    <Table
-                      data={sessions}
+                    <DmcScrollTable<DbSession>
                       columns={[
-                        { colKey: 'id', title: 'ID', width: 70 },
-                        { colKey: 'user', title: '用户', width: 90 },
-                        { colKey: 'host', title: '来源', width: 140, ellipsis: true },
-                        { colKey: 'command', title: '状态', width: 90 },
-                        { colKey: 'time', title: '时长(s)', width: 70 },
-                        { colKey: 'query', title: '当前 SQL', ellipsis: true },
+                        { key: 'id', title: 'ID', width: 70 },
+                        { key: 'user', title: '用户', width: 90 },
+                        { key: 'host', title: '来源', width: 140 },
+                        { key: 'command', title: '状态', width: 90 },
+                        { key: 'time', title: '时长(s)', width: 80 },
+                        { key: 'query', title: '当前 SQL', width: 320 },
                         {
-                          colKey: 'actions',
+                          key: 'actions',
                           title: '操作',
                           width: 80,
-                          cell: ({ row }: { row: DbSession }) => (
+                          render: (row) => (
                             <Popconfirm
                               content={`确认终止会话 #${row.id}？`}
                               onConfirm={() => killSession(row.id)}
@@ -906,11 +986,8 @@ const DmcWorkspace: React.FC<{
                           ),
                         },
                       ]}
+                      rows={sessions}
                       rowKey="id"
-                      size="small"
-                      stripe
-                      hover
-                      bordered
                     />
                   ) : (
                     <p className="text-xs text-slate-500 text-center py-8">暂无活跃会话</p>
@@ -919,64 +996,82 @@ const DmcWorkspace: React.FC<{
               )}
 
               {resultTab === 'history' && (
-                <div className="p-2 space-y-1">
-                  {assetHistory.map((h) => (
-                    <div
-                      key={h.id}
-                      className="p-2 rounded border border-[var(--border-subtle)] hover:bg-[var(--bg-elevated)] cursor-pointer"
-                      onClick={() => {
-                        if (typeof h.query_text === 'string' && h.query_text) {
-                          setSql(h.query_text);
-                          setResultTab('result');
-                        }
-                      }}
-                    >
-                      <p className="text-xs font-mono text-slate-300 truncate">{h.query_text}</p>
-                      <p className="text-[10px] text-slate-500 mt-1">
-                        {h.status === 'success'
-                          ? `成功 · ${h.row_count ?? 0} 行 · ${h.duration_ms}ms`
-                          : `失败 · ${h.error_message?.slice(0, 80)}`}
-                        <span className="ml-2">{h.executed_at}</span>
-                      </p>
+                <div className="dmc-result-scroll-pane">
+                  {assetHistory.length === 0 ? (
+                    <p className="dmc-result-empty">暂无执行历史</p>
+                  ) : (
+                    <div className="dmc-history-list">
+                      {assetHistory.map((h) => (
+                        <div
+                          key={h.id}
+                          className="dmc-history-item"
+                          onClick={() => {
+                            if (typeof h.query_text === 'string' && h.query_text) {
+                              setSql(h.query_text);
+                              setResultTab('result');
+                            }
+                          }}
+                        >
+                          <pre className="dmc-history-sql">{h.query_text}</pre>
+                          <p className="dmc-history-meta">
+                            <span className={h.status === 'success' ? 'text-emerald-400' : 'text-red-400'}>
+                              {h.status === 'success' ? '成功' : '失败'}
+                            </span>
+                            {h.status === 'success' ? (
+                              <span>{` · ${h.row_count ?? 0} 行 · ${h.duration_ms}ms`}</span>
+                            ) : (
+                              h.error_message ? (
+                                <span className="dmc-history-error">{` · ${h.error_message}`}</span>
+                              ) : null
+                            )}
+                            <span className="dmc-history-time">{h.executed_at}</span>
+                          </p>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                  {assetHistory.length === 0 && (
-                    <p className="text-xs text-slate-500 text-center py-8">暂无执行历史</p>
                   )}
                 </div>
               )}
 
               {resultTab === 'saved' && (
-                <div className="p-2 space-y-1">
-                  {assetSaved.map((s) => (
-                    <div
-                      key={s.id}
-                      className="p-2 rounded border border-[var(--border-subtle)] hover:bg-[var(--bg-elevated)]"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span
-                          className="text-xs font-medium text-slate-200 cursor-pointer truncate"
-                          onClick={() => {
-                            setSql(s.query_text);
-                            setResultTab('result');
-                          }}
-                        >
-                          {s.name}
-                        </span>
-                        <Popconfirm content="删除此查询？" onConfirm={async () => {
-                          await databaseService.deleteSavedQuery(s.id);
-                          loadSaved();
-                        }}>
-                          <Button variant="text" size="small" theme="danger">
-                            删除
-                          </Button>
-                        </Popconfirm>
-                      </div>
-                      <p className="text-[10px] font-mono text-slate-500 truncate mt-0.5">{s.query_text}</p>
+                <div className="dmc-result-scroll-pane">
+                  {assetSaved.length === 0 ? (
+                    <p className="dmc-result-empty">暂无保存的查询</p>
+                  ) : (
+                    <div className="dmc-history-list">
+                      {assetSaved.map((s) => (
+                        <div key={s.id} className="dmc-history-item dmc-history-item--saved">
+                          <div className="dmc-saved-head">
+                            <span
+                              className="dmc-saved-name"
+                              onClick={() => {
+                                setSql(s.query_text);
+                                setResultTab('result');
+                              }}
+                            >
+                              {s.name}
+                            </span>
+                            <Popconfirm content="删除此查询？" onConfirm={async () => {
+                              await databaseService.deleteSavedQuery(s.id);
+                              loadSaved();
+                            }}>
+                              <Button variant="text" size="small" theme="danger">
+                                删除
+                              </Button>
+                            </Popconfirm>
+                          </div>
+                          <pre
+                            className="dmc-history-sql"
+                            onClick={() => {
+                              setSql(s.query_text);
+                              setResultTab('result');
+                            }}
+                          >
+                            {s.query_text}
+                          </pre>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                  {assetSaved.length === 0 && (
-                    <p className="text-xs text-slate-500 text-center py-8">暂无保存的查询</p>
                   )}
                 </div>
               )}

@@ -60,9 +60,9 @@ async function withMssql<T>(conn: DbConnection, fn: (pool: any, sql: any) => Pro
   }
 }
 
-function mssqlRowsToResult(recordset: any[], rowsAffected?: number[], durationMs = 0): QueryResult {
+function mssqlRowsToResult(recordset: any[], rowsAffected?: number[], durationMs = 0, fallbackColumns?: string[]): QueryResult {
   const arrRows = Array.isArray(recordset) ? recordset : [];
-  const columns = arrRows.length > 0 ? Object.keys(arrRows[0]) : [];
+  const columns = arrRows.length > 0 ? Object.keys(arrRows[0]) : (fallbackColumns || []);
   const affected = rowsAffected?.[0];
   return {
     columns,
@@ -127,6 +127,33 @@ let mssqlModule: any = null;
 let mysqlModule: any = null;
 let pgModule: any = null;
 
+interface SchemaRow {
+  TABLE_NAME: string;
+  COLUMN_NAME: string;
+  type: string;
+  nullable: string;
+  key_type?: string;
+}
+
+function groupSchemaRows(rows: SchemaRow[]): { tables: { name: string; columns: { name: string; type: string; nullable: string; key_type: string }[] }[] } {
+  const map = new Map<string, { name: string; type: string; nullable: string; key_type: string }[]>();
+  for (const row of rows) {
+    if (!map.has(row.TABLE_NAME)) map.set(row.TABLE_NAME, []);
+    map.get(row.TABLE_NAME)!.push({
+      name: row.COLUMN_NAME,
+      type: row.type || '',
+      nullable: row.nullable || 'YES',
+      key_type: row.key_type || '',
+    });
+  }
+  const tables: { name: string; columns: { name: string; type: string; nullable: string; key_type: string }[] }[] = [];
+  for (const [name, columns] of map) {
+    tables.push({ name, columns });
+  }
+  tables.sort((a, b) => a.name.localeCompare(b.name));
+  return { tables };
+}
+
 async function getConnection(assetId: number): Promise<DbConnection> {
   const [rows] = await pool.query<any[]>(
     `SELECT host, port, db_type, database_name, username, password_encrypted FROM assets WHERE id = ? AND asset_type = 'database' AND deleted_at IS NULL`,
@@ -146,10 +173,17 @@ async function queryMssql(conn: DbConnection, sql: string): Promise<QueryResult>
   return withMssql(conn, async (pool) => {
     const start = Date.now();
     const result = await pool.request().query(sql);
+    const allRows: any[] = [];
+    const recordsets = (result.recordsets && result.recordsets.length > 0)
+      ? result.recordsets
+      : (result.recordset ? [result.recordset] : []);
+    for (const rs of recordsets) {
+      if (Array.isArray(rs)) allRows.push(...rs);
+    }
     return mssqlRowsToResult(
-      result.recordset || [],
+      allRows,
       result.rowsAffected,
-      Date.now() - start
+      Date.now() - start,
     );
   });
 }
@@ -207,11 +241,6 @@ export const dbQueryService = {
     if (database) conn.database = database;
     const trimmed = sql.trim();
     if (!trimmed || !conn.database) throw new Error(!conn.database ? 'No database selected' : 'SQL 语句不能为空');
-
-    // Detect multiple statements
-    if (/;\s*\S/.test(trimmed.replace(/;\s*$/, ''))) {
-      throw new Error('一次只能执行一条语句');
-    }
 
     logger.info({ assetId, dbType: conn.dbType, sqlLen: trimmed.length }, 'Executing SQL query');
 
@@ -295,6 +324,7 @@ export const dbQueryService = {
     const conn = await getConnection(assetId);
     const db = database || conn.database;
     if (!db) throw new Error('请先选择数据库');
+    if (database) conn.database = database;
     switch (conn.dbType) {
       case 'mysql': {
         const mysql2 = require('mysql2/promise');
@@ -353,6 +383,7 @@ export const dbQueryService = {
     const conn = await getConnection(assetId);
     const db = database || conn.database;
     if (!db) throw new Error('请先选择数据库');
+    if (database) conn.database = database;
     switch (conn.dbType) {
       case 'mysql': {
         const mysql2 = require('mysql2/promise');
@@ -779,5 +810,48 @@ export const dbQueryService = {
       }
     }
     return { affectedRows: total };
+  },
+
+  async getSchema(assetId: number, database?: string): Promise<{ tables: { name: string; columns: { name: string; type: string; nullable: string; key_type: string }[] }[] }> {
+    const conn = await getConnection(assetId);
+    const db = database || conn.database;
+    if (!db) throw new Error('请先选择数据库');
+    if (database) conn.database = database;
+    switch (conn.dbType) {
+      case 'mysql': {
+        const mysql2 = require('mysql2/promise');
+        const c = await mysql2.createConnection({ host: conn.host, port: conn.port, user: conn.user, password: conn.password, database: db, connectTimeout: 5000 });
+        try {
+          const [rows] = await c.query(
+            `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE AS type, IS_NULLABLE AS nullable, COLUMN_KEY AS key_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME, ORDINAL_POSITION`,
+            [db]
+          );
+          return groupSchemaRows(rows as any[]);
+        } finally { c.end(); }
+      }
+      case 'postgresql': {
+        const pg = require('pg');
+        const c = new pg.Client({ host: conn.host, port: conn.port, user: conn.user, password: conn.password, database: db, connectionTimeoutMillis: 5000 });
+        try {
+          await c.connect();
+          const r = await c.query(
+            `SELECT table_name, column_name, data_type AS type, is_nullable AS nullable FROM information_schema.columns WHERE table_schema = 'public' ORDER BY table_name, ordinal_position`
+          );
+          return groupSchemaRows(r.rows.map((row: any) => ({ TABLE_NAME: row.table_name, COLUMN_NAME: row.column_name, type: row.type, nullable: row.nullable, key_type: '' })));
+        } finally { c.end(); }
+      }
+      case 'mssql': {
+        return withMssql(conn, async (pool, sql) => {
+          const r = await pool.request()
+            .input('db', sql.NVarChar, db)
+            .query(
+              `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE AS type, IS_NULLABLE AS nullable FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_CATALOG = @db ORDER BY TABLE_NAME, ORDINAL_POSITION`
+            );
+          return groupSchemaRows((r.recordset || []).map((row: any) => ({ ...row, key_type: '' })));
+        });
+      }
+      default:
+        return { tables: [] };
+    }
   },
 };

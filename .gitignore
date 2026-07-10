@@ -9,3 +9,4 @@ recordings/
 thumbs.db
 coverage/
 .vite/
+client/public/monaco-editor/

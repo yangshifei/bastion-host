@@ -56,6 +56,22 @@ export interface DbSession {
   query: string;
 }
 
+export interface ColumnSchema {
+  name: string;
+  type: string;
+  nullable: string;
+  key_type: string;
+}
+
+export interface TableSchema {
+  name: string;
+  columns: ColumnSchema[];
+}
+
+export interface DbSchema {
+  tables: TableSchema[];
+}
+
 export interface ExportResult {
   content: string;
   filename: string;
@@ -122,5 +138,10 @@ export const databaseService = {
     data: { table: string; format: 'csv' | 'sql'; content: string }
   ): Promise<ApiResponse<{ affectedRows: number }>> {
     return api.post(`/database/${assetId}/import`, data).then((r) => r.data);
+  },
+
+  getSchema(assetId: number, database?: string): Promise<ApiResponse<DbSchema>> {
+    const p = database ? `?database=${encodeURIComponent(database)}` : '';
+    return api.get(`/database/${assetId}/schema${p}`).then((r) => r.data);
   },
 };

@@ -4,6 +4,7 @@ import { ConfigProvider } from 'tdesign-react';
 import Guacamole from 'guacamole-common-js';
 import { useAppStore } from './stores/appStore';
 import App from './App';
+import './monaco-setup';
 import './styles/globals.css';
 import { applyGuacamolePatch } from './guacamole-patch';
 

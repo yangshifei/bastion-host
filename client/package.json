@@ -3,8 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
+    "copy-monaco": "node scripts/copy-monaco.mjs",
+    "predev": "npm run copy-monaco",
     "dev": "vite",
+    "prebuild": "npm run copy-monaco",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
