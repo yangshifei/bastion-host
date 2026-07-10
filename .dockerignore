@@ -1,0 +1,14 @@
+node_modules
+.git
+dist
+*.tsbuildinfo
+recordings
+.env
+.env.local
+*.log
+.DS_Store
+Thumbs.db
+*.md
+!.claude/
+specs/
+.vscode/

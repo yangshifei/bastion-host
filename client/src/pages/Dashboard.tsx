@@ -14,6 +14,65 @@ import { EmptyState } from '../components/EmptyState';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { useAuth } from '../hooks/useAuth';
 
+// ── Simple CSS bar chart ──
+const BarChart: React.FC<{ data: { label: string; value: number; max: number; color?: string }[] }> = ({ data }) => (
+  <div className="flex items-end gap-1.5 h-24 px-1">
+    {data.map((d, i) => (
+      <div key={i} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
+        <span className="text-[10px] text-slate-500">{d.value || ''}</span>
+        <div
+          className="w-full rounded-t transition-all duration-500"
+          style={{
+            height: `${d.max > 0 ? (d.value / d.max) * 100 : 0}%`,
+            minHeight: d.value > 0 ? '4px' : '0',
+            background: d.color || 'var(--accent)',
+            opacity: d.value > 0 ? 1 : 0.2,
+          }}
+        />
+        <span className="text-[10px] text-slate-600 mt-1">{d.label}</span>
+      </div>
+    ))}
+  </div>
+);
+
+// ── Simple donut ring ──
+const DonutRing: React.FC<{ segments: { label: string; value: number; color: string }[] }> = ({ segments }) => {
+  const total = segments.reduce((s, seg) => s + seg.value, 0) || 1;
+  const radius = 28;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+
+  return (
+    <div className="flex items-center gap-4">
+      <svg width="72" height="72" viewBox="0 0 72 72">
+        {segments.map((seg, i) => {
+          const dash = (seg.value / total) * circumference;
+          const segOffset = offset;
+          offset += dash;
+          return (
+            <circle key={i} cx="36" cy="36" r={radius} fill="none" stroke={seg.color}
+              strokeWidth="10" strokeDasharray={`${dash} ${circumference - dash}`}
+              strokeDashoffset={-segOffset} strokeLinecap="round"
+              style={{ transform: 'rotate(-90deg)', transformOrigin: '36px 36px' }} />
+          );
+        })}
+        {segments.length === 0 && (
+          <circle cx="36" cy="36" r={radius} fill="none" stroke="#334155" strokeWidth="10" />
+        )}
+      </svg>
+      <div className="space-y-1.5 text-xs">
+        {segments.map((seg, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: seg.color }} />
+            <span className="text-slate-300">{seg.label}</span>
+            <span className="text-slate-500 ml-auto">{Math.round((seg.value / total) * 100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { isAdmin, isAuditor } = useAuth();
@@ -72,6 +131,60 @@ export const Dashboard: React.FC = () => {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         {statCards.map((card) => <StatCard key={card.title} {...card} />)}
+      </div>
+
+      {/* ── Charts row ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
+        {/* Session trend */}
+        <SectionCard title="7日会话趋势" description="每日新建会话数量">
+          {stats?.sessionTrend && stats.sessionTrend.length > 0 ? (
+            <BarChart
+              data={stats.sessionTrend.map(d => ({
+                label: d.date.slice(5),
+                value: d.count,
+                max: Math.max(...stats.sessionTrend!.map(x => x.count), 1),
+              }))}
+            />
+          ) : (
+            <div className="h-24 flex items-center justify-center text-xs text-slate-500">暂无数据</div>
+          )}
+        </SectionCard>
+
+        {/* Protocol distribution */}
+        <SectionCard title="资产协议分布" description="SSH 与 RDP 资产占比">
+          {stats?.protocolDist ? (
+            <DonutRing
+              segments={[
+                { label: 'SSH', value: stats.protocolDist.ssh || 0, color: '#3b82f6' },
+                { label: 'RDP', value: stats.protocolDist.rdp || 0, color: '#f59e0b' },
+              ]}
+            />
+          ) : (
+            <div className="h-24 flex items-center justify-center text-xs text-slate-500">暂无数据</div>
+          )}
+        </SectionCard>
+
+        {/* Command safety */}
+        <SectionCard title="命令安全" description={`累计 ${stats?.commandStats?.total || 0} 条命令`}>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-400">安全命令</span>
+              <span className="text-emerald-400 font-medium">{(stats?.commandStats?.total || 0) - (stats?.commandStats?.dangerous || 0)}</span>
+            </div>
+            <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
+              <div className="h-full bg-emerald-500 rounded-full transition-all"
+                style={{ width: `${stats?.commandStats?.total ? (((stats.commandStats.total - stats.commandStats.dangerous) / stats.commandStats.total) * 100) : 0}%` }} />
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-400">危险命令</span>
+              <span className="text-red-400 font-medium">{stats?.commandStats?.dangerous || 0}</span>
+            </div>
+            <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
+              <div className="h-full bg-red-500 rounded-full transition-all"
+                style={{ width: `${stats?.commandStats?.total ? ((stats.commandStats.dangerous / stats.commandStats.total) * 100) : 0}%` }} />
+            </div>
+          </div>
+        </SectionCard>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">

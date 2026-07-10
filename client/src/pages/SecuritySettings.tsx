@@ -144,7 +144,10 @@ export const SecuritySettings: React.FC = () => {
   const loadSmtp = useCallback(async () => {
     try {
       const res = await securityService.getSmtpConfig();
-      if (res.code === 0 && res.data) setSmtpForm({ ...smtpForm, ...res.data, password: '' });
+      if (res.code === 0 && res.data) {
+        const d = res.data as any;
+        setSmtpForm({ host: d.host || '', port: d.port || 587, user: d.user || '', password: '', from_address: d.from_address || '' });
+      }
     } catch { /* ignore */ }
   }, []);
 

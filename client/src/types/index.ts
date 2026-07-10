@@ -46,6 +46,9 @@ export interface SafeAsset {
   host: string;
   port: number;
   protocol: AssetProtocol;
+  asset_type?: 'host' | 'database';
+  db_type?: 'mssql' | 'mysql' | 'postgresql';
+  database_name?: string;
   username: string | null;
   group_name: string;
   description: string | null;
@@ -136,6 +139,9 @@ export interface DashboardStats {
     total: number;
     dangerous: number;
   };
+  sessionTrend?: { date: string; count: number }[];
+  protocolDist?: Record<string, number>;
+  todaySessionsDetail?: number;
   recentSessions: Session[];
 }
 

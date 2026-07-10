@@ -18,6 +18,7 @@ import {
   VideoIcon,
   PoweroffIcon,
   SettingIcon,
+  FolderOpenIcon,
 } from 'tdesign-icons-react';
 import { useAuth } from '../hooks/useAuth';
 import { useAppStore } from '../stores/appStore';
@@ -84,6 +85,7 @@ export const Layout: React.FC = () => {
         items: [
           { path: '/terminal/ssh', icon: <TerminalIcon />, label: 'SSH 终端' },
           { path: '/terminal/rdp', icon: <DesktopIcon />, label: 'RDP 桌面' },
+          { path: '/database', icon: <FolderOpenIcon />, label: '数据库管理' },
         ],
       },
     ];
@@ -117,6 +119,7 @@ export const Layout: React.FC = () => {
   const isTerminalPage = pathname.startsWith('/terminal');
   const isSSH = pathname.startsWith('/terminal/ssh');
   const isRDP = pathname.startsWith('/terminal/rdp');
+  const isDatabaseDmc = /^\/database\/\d+/.test(pathname);
 
   return (
     <TLayout className="h-screen w-screen overflow-hidden">
@@ -175,7 +178,7 @@ export const Layout: React.FC = () => {
               icon={sidebarCollapsed ? <MenuUnfoldIcon /> : <MenuFoldIcon />}
               onClick={toggleSidebar}
             />
-            {!isTerminalPage && (
+            {!isTerminalPage && !isDatabaseDmc && (
               <div className="hidden md:block min-w-0">
                 <BreadcrumbNav />
               </div>
@@ -274,7 +277,7 @@ export const Layout: React.FC = () => {
 
         <Content
           className={
-            isTerminalPage
+            isTerminalPage || isDatabaseDmc
               ? 'overflow-hidden p-5 flex flex-col min-h-0'
               : 'overflow-auto p-5 page-content'
           }

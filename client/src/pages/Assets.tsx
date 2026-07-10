@@ -14,6 +14,7 @@ import {
   CheckCircleIcon,
 } from 'tdesign-icons-react';
 import { assetService, AssetQuery } from '../services/assetService';
+import api from '../services/api';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
 import { StatCard } from '../components/StatCard';
@@ -87,6 +88,8 @@ export const Assets: React.FC = () => {
   const [appliedProtocol, setAppliedProtocol] = useState('');
   const [appliedGroup, setAppliedGroup] = useState('');
   const [testing, setTesting] = useState<number | null>(null);
+  const [testLoading, setTestLoading] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<Array<string | number>>([]);
   const { begin, isLatest } = useRequestGuard();
 
@@ -171,6 +174,7 @@ export const Assets: React.FC = () => {
   const openCreate = (groupName?: string) => {
     setEditingAsset(null);
     setFormData({
+      asset_type: 'host',
       protocol: 'ssh',
       port: 22,
       group_name: groupName && groupName !== '未分组' ? groupName : 'default',
@@ -186,6 +190,9 @@ export const Assets: React.FC = () => {
       host: asset.host,
       port: asset.port,
       protocol: asset.protocol,
+      asset_type: (asset as any).asset_type || 'host',
+      db_type: (asset as any).db_type || undefined,
+      database_name: (asset as any).database_name || '',
       username: asset.username,
       group_name: asset.group_name,
       description: asset.description,
@@ -267,6 +274,31 @@ export const Assets: React.FC = () => {
     }
   };
 
+  const handleDbTest = async (id: number) => {
+    setTesting(id);
+    try {
+      const res = await api.post(`/database/${id}/test`);
+      if (res.data?.code === 0) MessagePlugin.success('连接成功');
+      else MessagePlugin.warning(res.data?.message || '连接失败');
+    } catch { MessagePlugin.error('测试失败'); }
+    finally { setTesting(null); }
+  };
+
+  const handleTestConnection = async () => {
+    setTestLoading(true);
+    setTestResult(null);
+    try {
+      const res = await api.post('/database/0/test', {
+        host: formData.host, port: formData.port, db_type: formData.db_type,
+        database: formData.database_name, user: formData.username, password: formData.password,
+      });
+      if (res.data?.code === 0) setTestResult({ ok: true, msg: '连接成功' });
+      else setTestResult({ ok: false, msg: res.data?.message || '连接失败' });
+    } catch (err: any) {
+      setTestResult({ ok: false, msg: err?.response?.data?.message || err.message || '测试失败' });
+    } finally { setTestLoading(false); }
+  };
+
   const handleImport = async (file: any) => {
     try {
       const res = await assetService.importCsv(file.raw);
@@ -314,10 +346,15 @@ export const Assets: React.FC = () => {
         }
         return (
           <div className="flex items-center gap-2.5">
-            <span className={`flex items-center justify-center w-6 h-6 rounded-md shrink-0 ${row.protocol === 'ssh' ? 'bg-blue-500/10 text-blue-400' : 'bg-amber-500/10 text-amber-400'}`}>
-              {row.protocol === 'ssh' ? <TerminalIcon size="13px" /> : <DesktopIcon size="13px" />}
+            <span className={`flex items-center justify-center w-6 h-6 rounded-md shrink-0 ${(row as any).asset_type === 'database' ? 'bg-green-500/10 text-green-400' : row.protocol === 'ssh' ? 'bg-blue-500/10 text-blue-400' : 'bg-amber-500/10 text-amber-400'}`}>
+              {(row as any).asset_type === 'database' ? <FolderOpenIcon size="13px" /> : row.protocol === 'ssh' ? <TerminalIcon size="13px" /> : <DesktopIcon size="13px" />}
             </span>
-            <span className="text-sm font-medium text-slate-200 truncate">{row.name}</span>
+            <div className="min-w-0">
+              <span className="text-sm font-medium text-slate-200 truncate block">{row.name}</span>
+              {(row as any).asset_type === 'database' && (
+                <span className="text-[10px] text-green-500">{(row as any).db_type?.toUpperCase()} · {(row as any).database_name || ''}</span>
+              )}
+            </div>
           </div>
         );
       },
@@ -339,10 +376,12 @@ export const Assets: React.FC = () => {
     },
     {
       colKey: 'protocol',
-      title: '协议',
-      width: 70,
+      title: '类型',
+      width: 75,
       cell: ({ row }: { row: AssetTreeRow }) => {
         if (isAssetGroupRow(row)) return <span className="text-slate-600 text-xs">—</span>;
+        const isDb = (row as any).asset_type === 'database';
+        if (isDb) return <Tag theme="success" variant="light" size="small">{(row as any).db_type?.toUpperCase() || 'DB'}</Tag>;
         return (
           <Tag theme={row.protocol === 'ssh' ? 'primary' : 'warning'} variant="light" size="small">
             {row.protocol.toUpperCase()}
@@ -356,6 +395,7 @@ export const Assets: React.FC = () => {
       width: 75,
       cell: ({ row }: { row: AssetTreeRow }) => {
         if (isAssetGroupRow(row)) return <span className="text-slate-600 text-xs">—</span>;
+        if ((row as any).asset_type === 'database') return <span className="text-slate-600 text-xs">—</span>;
         const enabled = Boolean(row.recording_enabled);
         return (
           <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
@@ -387,10 +427,15 @@ export const Assets: React.FC = () => {
       width: 160,
       cell: ({ row }: { row: AssetTreeRow }) => {
         if (isAssetGroupRow(row)) return null;
+        const isDb = (row as any).asset_type === 'database';
         return (
           <Space size="small">
             <Button variant="text" size="small" icon={<EditIcon />} onClick={() => openEdit(row)} />
-            <Button variant="text" size="small" icon={<RefreshIcon />} loading={testing === row.id} onClick={() => handleTest(row.id)} />
+            {isDb ? (
+              <Button variant="text" size="small" icon={<RefreshIcon />} loading={testing === row.id} onClick={() => handleDbTest(row.id)} />
+            ) : (
+              <Button variant="text" size="small" icon={<RefreshIcon />} loading={testing === row.id} onClick={() => handleTest(row.id)} />
+            )}
             <Popconfirm content="确认删除？" onConfirm={() => handleDelete(row.id)}>
               <Button variant="text" size="small" theme="danger" icon={<DeleteIcon />} />
             </Popconfirm>
@@ -496,16 +541,73 @@ export const Assets: React.FC = () => {
           <FormItem label="名称" rules={[{ required: true }]}>
             <Input value={formData.name} onChange={(v) => setFormData({ ...formData, name: v })} />
           </FormItem>
-          <FormItem label="协议" rules={[{ required: true }]}>
+
+          {/* Asset type selector */}
+          <FormItem label="资产类型" rules={[{ required: true }]}>
             <Select
-              value={formData.protocol}
-              onChange={(v) => setFormData({ ...formData, protocol: v })}
+              value={formData.asset_type || 'host'}
+              onChange={(v) => setFormData({
+                ...formData,
+                asset_type: v,
+                protocol: v === 'database' ? 'ssh' : (formData.protocol || 'ssh'),
+                port: v === 'database' ? (formData.db_type === 'mssql' ? 1433 : formData.db_type === 'postgresql' ? 5432 : 3306) : (formData.port || 22),
+              })}
               options={[
-                { value: 'ssh', label: 'SSH' },
-                { value: 'rdp', label: 'RDP' },
+                { value: 'host', label: '🖥️ 主机资产 (SSH/RDP)' },
+                { value: 'database', label: '🗄️ 数据库资产 (SQL Server/MySQL/PG)' },
               ]}
             />
           </FormItem>
+
+          {/* Host-specific fields */}
+          {formData.asset_type !== 'database' && (
+            <FormItem label="协议" rules={[{ required: true }]}>
+              <Select
+                value={formData.protocol}
+                onChange={(v) => setFormData({ ...formData, protocol: v, port: v === 'ssh' ? 22 : 3389 })}
+                options={[
+                  { value: 'ssh', label: 'SSH' },
+                  { value: 'rdp', label: 'RDP' },
+                ]}
+              />
+            </FormItem>
+          )}
+
+          {/* Database-specific fields */}
+          {formData.asset_type === 'database' && (
+            <>
+              <FormItem label="数据库类型" rules={[{ required: true }]}>
+                <Select
+                  value={formData.db_type}
+                  onChange={(v) => setFormData({
+                    ...formData,
+                    db_type: v,
+                    port: v === 'mssql' ? 1433 : v === 'postgresql' ? 5432 : 3306,
+                    protocol: 'ssh',
+                  })}
+                  options={[
+                    { value: 'mysql', label: 'MySQL' },
+                    { value: 'postgresql', label: 'PostgreSQL' },
+                    { value: 'mssql', label: 'SQL Server' },
+                  ]}
+                />
+              </FormItem>
+              <FormItem label="数据库名" rules={[{ required: true, message: '请输入数据库名' }]}>
+                <Input value={formData.database_name} onChange={(v) => setFormData({ ...formData, database_name: v })} placeholder="输入数据库名称" />
+              </FormItem>
+              <FormItem label=" ">
+                <Button variant="outline" icon={<CheckCircleIcon />} loading={testLoading} onClick={handleTestConnection}>
+                  测试连接
+                </Button>
+                {testResult && (
+                  <span className={`ml-3 text-xs ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {testResult.msg}
+                  </span>
+                )}
+              </FormItem>
+            </>
+          )}
+
           <FormItem label="主机地址" rules={[{ required: true }]}>
             <Input value={formData.host} onChange={(v) => setFormData({ ...formData, host: v })} />
           </FormItem>
@@ -539,28 +641,28 @@ export const Assets: React.FC = () => {
             />
           </FormItem>
 
-          <div className="t-form__item recording-form-row">
-            <label className="t-form__label">会话回放</label>
-            <div className="t-form__controls">
-              <div className="flex items-center gap-3">
-                <RecordingSwitch
-                  value={formData.recording_enabled !== false}
-                  onChange={(v) => setFormData({ ...formData, recording_enabled: v })}
-                />
-                <Tag
-                  theme={formData.recording_enabled !== false ? 'success' : 'default'}
-                  variant="light"
-                  size="small"
-                  className="recording-status-tag"
-                >
-                  {formData.recording_enabled !== false ? '录像已开启' : '录像已关闭'}
-                </Tag>
+          {formData.asset_type !== 'database' && (
+            <div className="t-form__item recording-form-row">
+              <label className="t-form__label">会话回放</label>
+              <div className="t-form__controls">
+                <div className="flex items-center gap-3">
+                  <RecordingSwitch
+                    value={formData.recording_enabled !== false}
+                    onChange={(v) => setFormData({ ...formData, recording_enabled: v })}
+                  />
+                  <Tag
+                    theme={formData.recording_enabled !== false ? 'success' : 'default'}
+                    variant="light"
+                    size="small"
+                    className="recording-status-tag"
+                  >
+                    {formData.recording_enabled !== false ? '录像已开启' : '录像已关闭'}
+                  </Tag>
+                </div>
+                <p className="t-form__help">开启后 SSH / RDP 连接将自动录像，可在「会话回放」中查看</p>
               </div>
-              <p className="t-form__help">
-                开启后 SSH / RDP 连接将自动录像，可在「会话回放」中查看
-              </p>
             </div>
-          </div>
+          )}
 
           <FormItem label="描述">
             <Input value={formData.description} onChange={(v) => setFormData({ ...formData, description: v })} />

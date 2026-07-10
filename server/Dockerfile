@@ -18,9 +18,12 @@ WORKDIR /app
 
 RUN npm config set registry https://registry.npmmirror.com
 
-COPY client/package.json ./
+COPY client/package.json client/package-lock.json ./
 RUN npm install
-COPY client/ ./
+COPY client/tsconfig.json client/vite.config.ts client/index.html client/postcss.config.js client/tailwind.config.js ./
+COPY client/scripts/ ./scripts/
+COPY client/src/ ./src/
+COPY client/public/ ./public/
 RUN npm run build
 
 # ---- Runtime ----
