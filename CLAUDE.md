@@ -65,14 +65,12 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
 <!-- SPECKIT START -->
-**Active Feature**: [SQL 编辑器智能补全](specs/006-sql-editor-intelligence/spec.md)
-**Feature Spec**: [spec.md](specs/006-sql-editor-intelligence/spec.md)
-**Implementation Plan**: [plan.md](specs/006-sql-editor-intelligence/plan.md)
+**Active Feature**: [仪表盘页面重新设计](specs/007-dashboard-redesign/spec.md)
+**Feature Spec**: [spec.md](specs/007-dashboard-redesign/spec.md)
+**Implementation Plan**: [plan.md](specs/007-dashboard-redesign/plan.md)
 **Design Artifacts**:
-- [spec.md](specs/006-sql-editor-intelligence/spec.md)
-- [plan.md](specs/006-sql-editor-intelligence/plan.md)
-- [research.md](specs/006-sql-editor-intelligence/research.md)
-- [data-model.md](specs/006-sql-editor-intelligence/data-model.md)
-- [quickstart.md](specs/006-sql-editor-intelligence/quickstart.md)
-- [contracts/schema-api.md](specs/006-sql-editor-intelligence/contracts/schema-api.md)
+- [research.md](specs/007-dashboard-redesign/research.md)
+- [data-model.md](specs/007-dashboard-redesign/data-model.md)
+- [quickstart.md](specs/007-dashboard-redesign/quickstart.md)
+- [contracts/dashboard-api.md](specs/007-dashboard-redesign/contracts/dashboard-api.md)
 <!-- SPECKIT END -->

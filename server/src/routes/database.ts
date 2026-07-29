@@ -87,10 +87,21 @@ router.post('/0/test', async (req: Request, _res: Response) => {
 // POST /api/database/:id/test
 router.post('/:id/test', async (req: Request, res: Response) => {
   try {
-    const result = await dbQueryService.testConnection(parseInt(req.params.id as string));
+    const assetId = parseInt(req.params.id as string);
+    const result = await dbQueryService.testConnection(assetId);
+    await pool.query(
+      'UPDATE assets SET status = ?, last_checked_at = NOW() WHERE id = ?',
+      [result.success ? 'online' : 'offline', assetId]
+    );
     if (result.success) success(res, result);
     else error(res, result.message, 1, 400);
-  } catch (err: any) { error(res, err.message, 1, 500); }
+  } catch (err: any) {
+    await pool.query(
+      'UPDATE assets SET status = ?, last_checked_at = NOW() WHERE id = ?',
+      ['offline', parseInt(req.params.id as string)]
+    ).catch(() => {});
+    error(res, err.message, 1, 500);
+  }
 });
 
 // GET /api/database/:id/databases

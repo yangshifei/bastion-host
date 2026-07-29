@@ -70,8 +70,9 @@ router.get('/stats', async (req: Request, res: Response) => {
     const [rows] = await pool.query<any[]>(
       `SELECT
          COUNT(*) as total,
-         SUM(CASE WHEN protocol = 'ssh' THEN 1 ELSE 0 END) as ssh,
-         SUM(CASE WHEN protocol = 'rdp' THEN 1 ELSE 0 END) as rdp,
+         SUM(CASE WHEN asset_type != 'database' AND protocol = 'ssh' THEN 1 ELSE 0 END) as ssh,
+         SUM(CASE WHEN asset_type != 'database' AND protocol = 'rdp' THEN 1 ELSE 0 END) as rdp,
+         SUM(CASE WHEN asset_type = 'database' THEN 1 ELSE 0 END) as \`database\`,
          SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) as online,
          SUM(CASE WHEN status = 'offline' THEN 1 ELSE 0 END) as offline
        FROM assets WHERE deleted_at IS NULL`
@@ -112,8 +113,8 @@ router.get('/', async (req: Request, res: Response) => {
       params.push(`%${search}%`, `%${search}%`);
     }
     if (protocol) {
-      where += ' AND a.protocol = ?';
-      params.push(protocol);
+      where += ' AND a.protocol = ? AND a.asset_type != ?';
+      params.push(protocol, 'database');
     }
     if (group) {
       where += ' AND a.group_name = ?';

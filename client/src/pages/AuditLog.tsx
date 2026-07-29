@@ -196,8 +196,10 @@ export const AuditLog: React.FC = () => {
       width: 140,
       cell: ({ row }: any) => (
         <span className="text-slate-300">
-          {TARGET_TYPE_LABELS[row.target_type] || row.target_type || '-'}
-          {row.target_id ? ` #${row.target_id}` : ''}
+          {row.target_name
+            ? row.target_name
+            : `${TARGET_TYPE_LABELS[row.target_type] || row.target_type || '-'}${row.target_id ? ` #${row.target_id}` : ''}`
+          }
         </span>
       ),
     },

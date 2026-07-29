@@ -1,0 +1,1807 @@
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第   1 页
+  源代码文档 - project source
+============================================================
+
+// File: server/app.ts (218 lines)
+
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
+import authRoutes from './routes/auth';
+import usersRoutes from './routes/users';
+import assetsRoutes from './routes/assets';
+import authorizationsRoutes from './routes/authorizations';
+import sessionsRoutes from './routes/sessions';
+import auditRoutes from './routes/audit';
+import securityRoutes from './routes/security';
+import databaseRoutes from './routes/database';
+import { errorHandler } from './middleware/errorHandler';
+import { apiLimiter } from './middleware/rateLimiter';
+import { authenticate } from './middleware/auth';
+import pool from './database/connection';
+
+const app = express();
+
+// Trust reverse proxy (nginx) so req.ip uses X-Forwarded-For
+app.set('trust proxy', 1);
+
+// ---- Security headers ----
+// Disable HSTS / upgrade-insecure-requests on plain HTTP (e.g. LAN IP access).
+// Enable via ENABLE_HSTS=1 when terminating TLS at nginx/reverse proxy.
+const enableHsts = process.env.ENABLE_HSTS === '1';
+
+const cspDirectives: Record<string, string[] | null> = {
+  defaultSrc: ["'self'"],
+  scriptSrc: ["'self'", "'unsafe-eval'"],
+  styleSrc: ["'self'", "'unsafe-inline'"],
+  imgSrc: ["'self'", "data:", "blob:"],
+  connectSrc: ["'self'", "ws:", "wss:"],
+  fontSrc: ["'self'", "data:"],
+  workerSrc: ["'self'", "blob:"],
+};
+if (!enableHsts) {
+  cspDirectives.upgradeInsecureRequests = null;
+}
+
+app.use(helmet({
+  strictTransportSecurity: enableHsts,
+  contentSecurityPolicy: {
+    directives: cspDirectives,
+  },
+  crossOriginOpenerPolicy: false,
+  originAgentCluster: false,
+}));
+app.use(cookieParser());
+
+// ---- CORS ----
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第   2 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/app.ts
+
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production'
+    ? false
+    : ['http://localhost:5173', 'http://localhost:3001'],
+  credentials: true,
+}));
+
+// ---- Body parsing ----
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: false }));
+
+// ---- Rate limiting (general API) ----
+app.use('/api', apiLimiter);
+
+// ---- Routes ----
+app.use('/api/auth', authRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/assets', assetsRoutes);
+app.use('/api/authorizations', authorizationsRoutes);
+app.use('/api/sessions', sessionsRoutes);
+app.use('/api/audit', auditRoutes);
+app.use('/api/security', securityRoutes);
+app.use('/api', securityRoutes);  // also mount at /api for /api/notifications etc.
+app.use('/api/database', databaseRoutes);
+
+// ---- Dashboard stats ----
+app.get('/api/dashboard/stats', authenticate, async (_req, res) => {
+  try {
+    const [totalAssets] = await pool.query<any[]>('SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL');
+    const [onlineAssets] = await pool.query<any[]>("SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND status = 'online'");
+    const [totalUsers] = await pool.query<any[]>('SELECT COUNT(*) as count FROM users WHERE deleted_at IS NULL');
+    const [activeSessions] = await pool.query<any[]>("SELECT COUNT(*) as count FROM sessions WHERE status = 'active'");
+    const [todaySessions] = await pool.query<any[]>("SELECT COUNT(*) as count FROM sessions WHERE start_time >= CURDATE()");
+    const [totalSessions] = await pool.query<any[]>('SELECT COUNT(*) as count FROM sessions');
+    const [commandStats] = await pool.query<any[]>('SELECT COUNT(*) as total FROM command_logs');
+    const [dangerousStats] = await pool.query<any[]>('SELECT COUNT(*) as count FROM command_logs WHERE is_dangerous = 1');
+    const [recentSessions] = await pool.query<any[]>(
+      `SELECT s.*, u.username, a.name as asset_name
+       FROM sessions s JOIN users u ON s.user_id = u.id JOIN assets a ON s.asset_id = a.id
+       ORDER BY s.start_time DESC LIMIT 5`
+    );
+    const [sessionTrend] = await pool.query<any[]>(
+      `SELECT DATE(start_time) as date, COUNT(*) as count
+       FROM sessions WHERE start_time >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+       GROUP BY DATE(start_time) ORDER BY date`
+    );
+    const [protocolDist] = await pool.query<any[]>(
+      `SELECT protocol, COUNT(*) as count FROM assets WHERE deleted_at IS NULL GROUP BY protocol`
+    );
+    const [dbDist] = await pool.query<any[]>(
+      `SELECT db_type, COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND asset_type = 'database' GROUP BY db_type`
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第   3 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/app.ts
+
+    );
+    const [todayQueries] = await pool.query<any[]>(
+      `SELECT COUNT(*) as count FROM query_history WHERE executed_at >= CURDATE()`
+    );
+    const [todayQueryStats] = await pool.query<any[]>(
+      `SELECT status, COUNT(*) as count FROM query_history WHERE executed_at >= CURDATE() GROUP BY status`
+    );
+    const [recentQueries] = await pool.query<any[]>(
+      `SELECT qh.*, u.username
+       FROM query_history qh JOIN users u ON qh.user_id = u.id
+       ORDER BY qh.executed_at DESC LIMIT 5`
+    );
+    const [dbAssetsTotal] = await pool.query<any[]>(
+      `SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND asset_type = 'database'`
+    );
+    const [sshAssets] = await pool.query<any[]>(
+      `SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND asset_type != 'database' AND protocol = 'ssh'`
+    );
+    const [rdpAssets] = await pool.query<any[]>(
+      `SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND asset_type != 'database' AND protocol = 'rdp'`
+    );
+    const [todayFailedLogins] = await pool.query<any[]>(
+      `SELECT COUNT(*) as count FROM login_logs WHERE created_at >= CURDATE() AND result LIKE 'fail%'`
+    );
+
+    res.json({
+      code: 0,
+      message: 'ok',
+      data: {
+        totalAssets: totalAssets[0].count,
+        onlineAssets: onlineAssets[0].count,
+        offlineAssets: totalAssets[0].count - onlineAssets[0].count,
+        totalUsers: totalUsers[0].count,
+        activeSessions: activeSessions[0].count,
+        todaySessions: todaySessions[0].count,
+        totalSessions: totalSessions[0].count,
+        commandStats: {
+          total: commandStats[0].total,
+          dangerous: dangerousStats[0].count,
+        },
+        sessionTrend,
+        protocolDist: {
+          ...protocolDist.reduce((acc: any, r: any) => ({ ...acc, [r.protocol]: r.count }), {}),
+          ...dbDist.reduce((acc: any, r: any) => ({ ...acc, [r.db_type]: r.count }), {}),
+        },
+        dbAssets: { total: dbAssetsTotal[0].count, ...dbDist.reduce((acc: any, r: any) => ({ ...acc, [r.db_type]: r.count }), {}) },
+        sshAssets: sshAssets[0].count,
+        rdpAssets: rdpAssets[0].count,
+        todayQueries: todayQueries[0].count,
+        querySuccessCount: todayQueryStats.filter((r: any) => r.status === 'success').reduce((s: number, r: any) => s + r.count, 0),
+        queryErrorCount: todayQueryStats.filter((r: any) => r.status === 'error').reduce((s: number, r: any) => s + r.count, 0),
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第   4 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/app.ts
+
+        todayFailedLogins: todayFailedLogins[0].count,
+        recentSessions,
+        recentQueries: (recentQueries || []).map((q: any) => ({
+          ...q,
+          query_text: (q.query_text || '').length > 100 ? (q.query_text || '').substring(0, 100) + '...' : (q.query_text || ''),
+        })),
+      },
+    });
+  } catch (err) {
+    res.json({
+      code: 0,
+      message: 'ok',
+      data: {
+        totalAssets: 0, onlineAssets: 0, offlineAssets: 0,
+        totalUsers: 0, activeSessions: 0, todaySessions: 0, totalSessions: 0,
+        commandStats: { total: 0, dangerous: 0 },
+        sessionTrend: [],
+        protocolDist: {},
+        dbAssets: { total: 0 },
+        sshAssets: 0,
+        rdpAssets: 0,
+        todayQueries: 0,
+        querySuccessCount: 0,
+        queryErrorCount: 0,
+        todayFailedLogins: 0,
+        recentSessions: [],
+        recentQueries: [],
+      },
+    });
+  }
+});
+
+// ---- Health check ----
+app.get('/health', async (_req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ok', uptime: process.uptime(), db: 'connected' });
+  } catch {
+    res.status(503).json({ status: 'error', db: 'disconnected' });
+  }
+});
+
+app.get('/ready', async (_req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ready' });
+  } catch {
+    res.status(503).json({ status: 'not_ready', reason: 'db_not_connected' });
+  }
+});
+
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第   5 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/app.ts
+
+// ---- Serve static files in production ----
+if (process.env.NODE_ENV === 'production') {
+  const path = require('path');
+  app.use(express.static(path.resolve(__dirname, '../../client/dist')));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.resolve(__dirname, '../../client/dist/index.html'));
+  });
+}
+
+// ---- Error handler (must be last) ----
+app.use(errorHandler);
+
+export default app;
+
+// File: server/config.ts (67 lines)
+
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Load .env from server directory (and parent as fallback)
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+
+export const config = {
+  port: parseInt(process.env.PORT || '3001', 10),
+  nodeEnv: process.env.NODE_ENV || 'development',
+  isDev: (process.env.NODE_ENV || 'development') === 'development',
+
+  jwt: {
+    secret: process.env.JWT_SECRET || 'dev-jwt-secret-change-in-production-min-32-bytes',
+    expiresIn: process.env.JWT_EXPIRES_IN || '2h',
+  },
+
+  encryption: {
+    secret: process.env.ENCRYPTION_SECRET || 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6', // 32 hex bytes
+  },
+
+  db: {
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '3306', 10),
+    user: process.env.DB_USER || 'bastion',
+    password: process.env.DB_PASSWORD || 'bastion123',
+    database: process.env.DB_NAME || 'bastion_host',
+  },
+
+  guacd: {
+    host: process.env.GUACD_HOST || 'localhost',
+    port: parseInt(process.env.GUACD_PORT || '4822', 10),
+  },
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第   6 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/config.ts
+
+
+  log: {
+    level: process.env.LOG_LEVEL || 'debug',
+  },
+
+  session: {
+    idleTimeout: parseInt(process.env.SESSION_IDLE_TIMEOUT || '900', 10),
+    maxDuration: parseInt(process.env.SESSION_MAX_DURATION || '28800', 10),
+    maxPerUser: parseInt(process.env.MAX_SESSIONS_PER_USER || '5', 10),
+  },
+
+  security: {
+    loginMaxFails: parseInt(process.env.LOGIN_MAX_FAILS || '5', 10),
+    loginLockMinutes: parseInt(process.env.LOGIN_LOCK_MINUTES || '15', 10),
+    passwordMinLength: parseInt(process.env.PASSWORD_MIN_LENGTH || '8', 10),
+    passwordExpireDays: parseInt(process.env.PASSWORD_EXPIRE_DAYS || '90', 10),
+  },
+
+  rateLimit: {
+    loginMax: parseInt(process.env.RATE_LIMIT_LOGIN_MAX || '20', 10),
+    loginWindowMs: parseInt(process.env.RATE_LIMIT_LOGIN_WINDOW_MS || '60000', 10),
+    apiMax: parseInt(process.env.RATE_LIMIT_API_MAX || '200', 10),
+    apiWindowMs: parseInt(process.env.RATE_LIMIT_API_WINDOW_MS || '60000', 10),
+  },
+
+  retention: {
+    commandLogDays: parseInt(process.env.COMMAND_LOG_RETENTION_DAYS || '90', 10),
+    auditLogDays: parseInt(process.env.AUDIT_LOG_RETENTION_DAYS || '365', 10),
+    sessionDays: parseInt(process.env.SESSION_RETENTION_DAYS || '90', 10),
+  },
+};
+
+export default config;
+
+// File: server/database/connection.ts (223 lines)
+
+import mysql from 'mysql2/promise';
+import config from '../config';
+import logger from '../utils/logger';
+
+export const pool = mysql.createPool({
+  host: config.db.host,
+  port: config.db.port,
+  user: config.db.user,
+  password: config.db.password,
+  database: config.db.database,
+  charset: 'utf8mb4',
+  timezone: '+08:00',
+  dateStrings: true,
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第   7 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/database/connection.ts
+
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 10000,
+});
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(pool as any).on('error', (err: any) => {
+  logger.error({ err }, 'MySQL pool error');
+});
+
+export async function initPool(): Promise<void> {
+  try {
+    const conn = await pool.getConnection();
+    await conn.ping();
+    conn.release();
+    logger.info('MySQL connected successfully');
+    await runMigrations();
+  } catch (err) {
+    logger.error({ err }, 'MySQL connection failed');
+    throw err;
+  }
+}
+
+async function runMigrations(): Promise<void> {
+  // Helper: run ALTER TABLE, ignore if column already exists
+  const safeAlter = async (sql: string, label: string) => {
+    try {
+      await pool.query(sql);
+      logger.info(`Migration: ${label}`);
+    } catch (err: any) {
+      if (err?.code !== 'ER_DUP_FIELDNAME') {
+        logger.warn({ err, code: err?.code }, `Migration ${label} skipped`);
+      }
+    }
+  };
+
+  // Helper: create table if not exists
+  const safeCreate = async (sql: string, label: string) => {
+    try {
+      await pool.query(sql);
+      logger.info(`Migration: ${label}`);
+    } catch (err: any) {
+      logger.warn({ err, code: err?.code }, `Migration ${label} skipped`);
+    }
+  };
+
+  await safeAlter(
+    `ALTER TABLE assets ADD COLUMN recording_enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否开启会话录像回放'`,
+    'assets.recording_enabled'
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第   8 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/database/connection.ts
+
+  );
+
+  // ── 002-login-security ──
+  await safeAlter(
+    `ALTER TABLE users ADD COLUMN password_changed_at DATETIME DEFAULT NULL COMMENT '密码最后修改时间'`,
+    'users.password_changed_at'
+  );
+  await safeAlter(
+    `ALTER TABLE users ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0 COMMENT '下次登录强制修改密码'`,
+    'users.must_change_password'
+  );
+  await safeAlter(
+    `ALTER TABLE users ADD COLUMN known_ips JSON DEFAULT NULL COMMENT '已登录过的IP列表'`,
+    'users.known_ips'
+  );
+
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS password_history (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL, password_hash VARCHAR(255) NOT NULL,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       INDEX idx_user_created (user_id, created_at DESC),
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table password_history'
+  );
+
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS ip_whitelist (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       network VARCHAR(45) NOT NULL, mask INT NOT NULL,
+       description VARCHAR(255) DEFAULT NULL,
+       enabled TINYINT(1) NOT NULL DEFAULT 1,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table ip_whitelist'
+  );
+
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS user_ip_bindings (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL UNIQUE, ip_address VARCHAR(45) NOT NULL,
+       description VARCHAR(255) DEFAULT NULL,
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table user_ip_bindings'
+  );
+
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS login_notifications (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第   9 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/database/connection.ts
+
+       user_id INT NOT NULL,
+       type ENUM('new_ip_login','failed_login','account_locked','password_changed') NOT NULL,
+       ip VARCHAR(45) DEFAULT NULL, detail JSON DEFAULT NULL,
+       \`read\` TINYINT(1) NOT NULL DEFAULT 0,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       INDEX idx_user_read (user_id, \`read\`, created_at DESC),
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table login_notifications'
+  );
+
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS system_config (
+       config_key VARCHAR(64) PRIMARY KEY,
+       config_value JSON NOT NULL,
+       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table system_config'
+  );
+
+  // Insert default password policy if not exists
+  try {
+    await pool.query(
+      `INSERT IGNORE INTO system_config (config_key, config_value) VALUES ('password_policy', ?)`,
+      [JSON.stringify({
+        min_length: 8, require_upper: true, require_lower: true, require_digit: true,
+        require_special: false, expire_days: 90, history_count: 5,
+        force_change_on_create: true, captcha_threshold: 3,
+        lockout_threshold: 10, lockout_minutes: 15,
+      })]
+    );
+  } catch (err: any) {
+    logger.warn({ err }, 'Migration default password_policy skipped');
+  }
+
+  // ── 003-email-mfa ──
+  await safeAlter(
+    `ALTER TABLE users ADD COLUMN mfa_method ENUM('totp','email') DEFAULT NULL COMMENT 'MFA 方式'`,
+    'users.mfa_method'
+  );
+
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS email_mfa_codes (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL,
+       code_hash VARCHAR(255) NOT NULL,
+       email VARCHAR(128) NOT NULL,
+       expires_at DATETIME NOT NULL,
+       attempts INT NOT NULL DEFAULT 0,
+       session_token VARCHAR(128) NOT NULL UNIQUE,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  10 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/database/connection.ts
+
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+       INDEX idx_session (session_token)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table email_mfa_codes'
+  );
+
+  // ── 005-database-asset-management ──
+  await safeAlter(
+    `ALTER TABLE assets ADD COLUMN asset_type ENUM('host','database') NOT NULL DEFAULT 'host' COMMENT '资产类型：主机/数据库'`,
+    'assets.asset_type'
+  );
+  await safeAlter(
+    `ALTER TABLE assets ADD COLUMN db_type ENUM('mssql','mysql','postgresql') DEFAULT NULL COMMENT '数据库类型'`,
+    'assets.db_type'
+  );
+  await safeAlter(
+    `ALTER TABLE assets ADD COLUMN database_name VARCHAR(128) DEFAULT NULL COMMENT '数据库名'`,
+    'assets.database_name'
+  );
+
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS query_history (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL,
+       asset_id INT NOT NULL,
+       query_text TEXT NOT NULL,
+       db_name VARCHAR(128) DEFAULT NULL,
+       status ENUM('success','error') NOT NULL,
+       row_count INT DEFAULT NULL,
+       duration_ms INT DEFAULT NULL,
+       error_message TEXT DEFAULT NULL,
+       executed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+       FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+       INDEX idx_user_time (user_id, executed_at DESC)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table query_history'
+  );
+
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS saved_queries (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL,
+       asset_id INT DEFAULT NULL,
+       name VARCHAR(128) NOT NULL,
+       query_text TEXT NOT NULL,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+       INDEX idx_user (user_id)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  11 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/database/connection.ts
+
+    'table saved_queries'
+  );
+}
+
+export default pool;
+
+// File: server/database/migrate.ts (60 lines)
+
+import fs from 'fs';
+import path from 'path';
+import mysql from 'mysql2/promise';
+import dotenv from 'dotenv';
+
+// Load .env
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+
+async function migrate() {
+  // Connect without database first to create it
+  const initPool = mysql.createPool({
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '3306', 10),
+    user: process.env.DB_USER || 'bastion',
+    password: process.env.DB_PASSWORD || 'bastion123',
+    charset: 'utf8mb4',
+  });
+
+  const schemaPath = path.resolve(__dirname, 'schema.sql');
+  if (!fs.existsSync(schemaPath)) {
+    console.error(`Schema file not found: ${schemaPath}`);
+    process.exit(1);
+  }
+
+  const schema = fs.readFileSync(schemaPath, 'utf8');
+
+  // Split on semicolons, filter out empty statements and comments
+  const statements = schema
+    .split(';')
+    .map(s => s.trim())
+    .filter(s => s.length > 0 && !s.startsWith('--') && s !== '');
+
+  console.log(`Found ${statements.length} SQL statements to execute`);
+
+  for (let i = 0; i < statements.length; i++) {
+    const stmt = statements[i];
+    try {
+      await initPool.query(stmt);
+      const preview = stmt.substring(0, 60).replace(/\n/g, ' ').trim();
+      console.log(`[${i + 1}/${statements.length}] OK: ${preview}...`);
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  12 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/database/migrate.ts
+
+    } catch (err: any) {
+      // Ignore "database exists" errors
+      if (err.code === 'ER_DB_CREATE_EXISTS') {
+        console.log(`[${i + 1}/${statements.length}] SKIP: Database already exists`);
+      } else {
+        console.error(`[${i + 1}/${statements.length}] ERROR: ${err.message}`);
+      }
+    }
+  }
+
+  await initPool.end();
+  console.log('Migration completed.');
+}
+
+migrate().catch((err) => {
+  console.error('Migration failed:', err);
+  process.exit(1);
+});
+
+// File: server/index.ts (107 lines)
+
+import http from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
+import url from 'url';
+import app from './app';
+import config from './config';
+import logger from './utils/logger';
+import { initPool } from './database/connection';
+import { sessionManager } from './terminal/sessionManager';
+import { handleSSHConnection } from './terminal/sshHandler';
+import { handleRDPConnection } from './terminal/rdpHandler';
+import { setSessionManager } from './routes/sessions';
+import { startCleanupService } from './services/cleanupService';
+
+async function main() {
+  // Initialize database
+  await initPool();
+
+  // Initialize recordings directory
+  const fs = await import('fs');
+  const path = await import('path');
+  const recordingsDir = path.resolve(process.cwd(), 'recordings');
+  if (!fs.existsSync(recordingsDir)) {
+    fs.mkdirSync(recordingsDir, { recursive: true });
+    logger.info({ path: recordingsDir }, 'Created recordings directory');
+  }
+
+  // Create HTTP server
+  const server = http.createServer(app);
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  13 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/index.ts
+
+
+  // WebSocket server (noServer mode — manual upgrade)
+  const wss = new WebSocketServer({
+    noServer: true,
+    handleProtocols: (protocols, request) => {
+      const pathname = request.url ? url.parse(request.url).pathname : '';
+      if (pathname === '/ws/rdp' && protocols.has('guacamole')) {
+        return 'guacamole';
+      }
+      return false;
+    },
+  });
+
+  // Set session manager reference for routes
+  setSessionManager(sessionManager);
+
+  // Handle upgrade requests
+  server.on('upgrade', (request, socket, head) => {
+    const pathname = request.url ? url.parse(request.url).pathname : '';
+
+    if (pathname === '/ws/ssh') {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        handleSSHConnection(ws, request, sessionManager);
+      });
+    } else if (pathname === '/ws/rdp') {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        handleRDPConnection(ws, request, sessionManager);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
+
+  // Start listening
+  server.listen(config.port, () => {
+    logger.info({ port: config.port, env: config.nodeEnv }, 'Server started');
+  });
+
+  // Start data retention cleanup service
+  startCleanupService();
+
+  // ---- Graceful shutdown ----
+  const shutdown = async (signal: string) => {
+    logger.info({ signal }, 'Received shutdown signal');
+
+    // Step 1: Stop accepting new connections
+    server.close();
+    logger.info('HTTP server closed');
+
+    // Step 2: Notify and drain active sessions
+    try {
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  14 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/index.ts
+
+      await sessionManager.drain(10000);
+    } catch (err) {
+      logger.error({ err }, 'Error draining sessions');
+    }
+
+    // Step 3: Close database pool
+    try {
+      const { pool } = await import('./database/connection');
+      await pool.end();
+      logger.info('Database pool closed');
+    } catch (err) {
+      logger.error({ err }, 'Error closing database pool');
+    }
+
+    // Step 4: Exit
+    logger.info('Shutdown complete');
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+}
+
+main().catch((err) => {
+  logger.error({ err }, 'Failed to start server');
+  process.exit(1);
+});
+
+// File: server/middleware/audit.ts (51 lines)
+
+import { Request } from 'express';
+import pool from '../database/connection';
+import logger from '../utils/logger';
+
+export interface AuditParams {
+  userId?: number | null;
+  username?: string | null;
+  action: string;
+  targetType?: string | null;
+  targetId?: number | null;
+  detail?: Record<string, any> | null;
+  ip?: string | null;
+  userAgent?: string | null;
+}
+
+/**
+ * Record an audit log entry. Non-blocking — errors are logged but swallowed.
+ */
+export async function recordAudit(params: AuditParams): Promise<void> {
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  15 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/middleware/audit.ts
+
+  try {
+    await pool.query(
+      `INSERT INTO audit_logs (user_id, username, action, target_type, target_id, detail, ip, user_agent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        params.userId ?? null,
+        params.username ?? null,
+        params.action,
+        params.targetType ?? null,
+        params.targetId ?? null,
+        params.detail ? JSON.stringify(params.detail) : null,
+        params.ip ?? null,
+        params.userAgent ?? null,
+      ]
+    );
+  } catch (err) {
+    logger.error({ err, params }, 'Failed to record audit log');
+  }
+}
+
+/**
+ * Extract common audit fields from Express request.
+ */
+export function auditFromReq(req: Request): Pick<AuditParams, 'userId' | 'username' | 'ip' | 'userAgent'> {
+  return {
+    userId: req.user?.userId ?? null,
+    username: req.user?.username ?? null,
+    ip: req.ip || req.socket.remoteAddress || null,
+    userAgent: req.headers['user-agent']?.substring(0, 512) || null,
+  };
+}
+
+// File: server/middleware/auth.ts (82 lines)
+
+import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+import config from '../config';
+import { AuthUser } from '../types';
+
+export interface JwtPayload {
+  userId: number;
+  username: string;
+  role: string;
+  type?: string; // 'mfa' for MFA intermediate token
+  scope?: string; // 'mfa_setup' for restricted MFA setup token
+  iat?: number;
+  exp?: number;
+}
+
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  16 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/middleware/auth.ts
+
+export function authenticate(req: Request, res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ code: 401, message: '未提供认证令牌' });
+    return;
+  }
+
+  const token = authHeader.substring(7);
+
+  try {
+    const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
+
+    // Reject MFA intermediate tokens for normal API access
+    if (decoded.type === 'mfa') {
+      res.status(401).json({ code: 401, message: '需要完成 MFA 验证' });
+      return;
+    }
+
+    // Reject MFA-setup tokens for non-MFA-setup endpoints
+    if (decoded.scope === 'mfa_setup') {
+      const fullPath = req.originalUrl || req.url || '';
+      const allowed = fullPath.includes('/auth/') || fullPath.includes('/profile') || fullPath.includes('/notifications');
+      if (!allowed) {
+        res.status(403).json({ code: 403, message: '请先完成 MFA 设置' });
+        return;
+      }
+    }
+
+    req.user = {
+      userId: decoded.userId,
+      username: decoded.username,
+      role: decoded.role as AuthUser['role'],
+    };
+
+    next();
+  } catch (err) {
+    if (err instanceof jwt.TokenExpiredError) {
+      res.status(401).json({ code: 401, message: '令牌已过期，请重新登录' });
+    } else {
+      res.status(401).json({ code: 401, message: '无效的认证令牌' });
+    }
+  }
+}
+
+export function optionalAuth(req: Request, _res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    try {
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  17 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/middleware/auth.ts
+
+      const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
+      if (decoded.type !== 'mfa') {
+        req.user = {
+          userId: decoded.userId,
+          username: decoded.username,
+          role: decoded.role as AuthUser['role'],
+        };
+      }
+    } catch {
+      // Token invalid — continue without user
+    }
+  }
+
+  next();
+}
+
+// File: server/middleware/errorHandler.ts (24 lines)
+
+import { Request, Response, NextFunction } from 'express';
+import logger from '../utils/logger';
+
+export function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction): void {
+  logger.error({ err, url: req.url, method: req.method }, 'Unhandled error');
+
+  const statusCode = (err as any).statusCode || 500;
+  const message = statusCode === 500 ? 'Internal Server Error' : err.message;
+
+  res.status(statusCode).json({
+    code: statusCode,
+    message,
+  });
+}
+
+export class AppError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.statusCode = statusCode;
+    this.name = 'AppError';
+  }
+}
+
+// File: server/middleware/ipFilter.ts (101 lines)
+
+import { Request, Response, NextFunction } from 'express';
+import pool from '../database/connection';
+import logger from '../utils/logger';
+
+/** Simple CIDR check: does ip fall within network/mask? */
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  18 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/middleware/ipFilter.ts
+
+function ipInCidr(ip: string, network: string, mask: number): boolean {
+  const ipParts = ip.split('.').map(Number);
+  const netParts = network.split('.').map(Number);
+  if (ipParts.length !== 4 || netParts.length !== 4) return false;
+  const ipInt = (ipParts[0] << 24) | (ipParts[1] << 16) | (ipParts[2] << 8) | ipParts[3];
+  const netInt = (netParts[0] << 24) | (netParts[1] << 16) | (netParts[2] << 8) | netParts[3];
+  const maskInt = ~((1 << (32 - mask)) - 1);
+  return (ipInt & maskInt) === (netInt & maskInt);
+}
+
+interface IpWhitelistEntry {
+  network: string;
+  mask: number;
+  enabled: boolean;
+}
+
+/**
+ * Check if an IP is within any enabled CIDR range in the whitelist.
+ * Returns true if allowed (whitelist is empty or IP matches).
+ * Returns false if rejected (whitelist exists and IP doesn't match).
+ */
+async function isIpAllowed(ip: string): Promise<boolean> {
+  try {
+    const [rows] = await pool.query<any[]>(
+      `SELECT network, mask, enabled FROM ip_whitelist WHERE enabled = 1`
+    );
+    if (rows.length === 0) return true; // no whitelist = allow all
+
+    for (const row of rows) {
+      if (ipInCidr(ip, row.network, row.mask)) return true;
+    }
+    return false;
+  } catch (err) {
+    logger.error({ err }, 'IP whitelist check failed, allowing by default');
+    return true; // fail open
+  }
+}
+
+/**
+ * Check if a user has a per-user IP binding and if the current IP matches.
+ * Returns true if no binding exists or IP matches.
+ * Returns false if binding exists and IP doesn't match.
+ */
+async function checkUserIpBinding(userId: number, ip: string): Promise<boolean> {
+  try {
+    const [rows] = await pool.query<any[]>(
+      `SELECT ip_address FROM user_ip_bindings WHERE user_id = ?`,
+      [userId]
+    );
+    if (rows.length === 0) return true; // no binding
+
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  19 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/middleware/ipFilter.ts
+
+    const boundIp = rows[0].ip_address;
+    // Check if bound IP is a CIDR range
+    if (boundIp.includes('/')) {
+      const [net, maskStr] = boundIp.split('/');
+      const mask = parseInt(maskStr, 10);
+      if (!isNaN(mask)) return ipInCidr(ip, net, mask);
+      return boundIp === ip;
+    }
+    return boundIp === ip;
+  } catch {
+    return true; // fail open
+  }
+}
+
+/**
+ * Express middleware: reject requests from IPs not in the whitelist.
+ * Apply to login endpoint only (not global).
+ */
+export function ipFilterMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+    || req.socket.remoteAddress
+    || '127.0.0.1';
+
+  isIpAllowed(ip).then((allowed) => {
+    if (!allowed) {
+      res.status(401).json({ code: 1, message: '此 IP 地址不在允许范围内' });
+      return;
+    }
+    next();
+  }).catch(() => next());
+}
+
+/**
+ * Check IP for a specific user during login. Called after IP whitelist check.
+ */
+export async function validateUserIp(userId: number, ip: string): Promise<boolean> {
+  return checkUserIpBinding(userId, ip);
+}
+
+export function getClientIp(req: Request): string {
+  return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+    || req.socket.remoteAddress
+    || '127.0.0.1';
+}
+
+// File: server/middleware/rateLimiter.ts (47 lines)
+
+import rateLimit from 'express-rate-limit';
+import type { Request, Response } from 'express';
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  20 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/middleware/rateLimiter.ts
+
+import config from '../config';
+
+/** Auth routes use dedicated loginLimiter — skip general API limiter */
+function isAuthRoute(req: Request): boolean {
+  const path = req.path || '';
+  return (
+    path === '/auth/login' ||
+    path.startsWith('/auth/mfa') ||
+    path === '/auth/logout'
+  );
+}
+
+function rateLimitHandler(message: string) {
+  return (_req: Request, res: Response, _next: unknown, options: { statusCode: number }) => {
+    res.status(options.statusCode).json({
+      code: 429,
+      message,
+    });
+  };
+}
+
+/**
+ * Login / MFA rate limiter — per real client IP (requires trust proxy behind nginx).
+ */
+export const loginLimiter = rateLimit({
+  windowMs: config.rateLimit.loginWindowMs,
+  max: config.rateLimit.loginMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  handler: rateLimitHandler('登录尝试过于频繁，请稍后再试'),
+});
+
+/**
+ * General API rate limiter — auth routes excluded (they have loginLimiter).
+ */
+export const apiLimiter = rateLimit({
+  windowMs: config.rateLimit.apiWindowMs,
+  max: config.rateLimit.apiMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: isAuthRoute,
+  handler: rateLimitHandler('请求过多，请稍后再试'),
+});
+
+// File: server/middleware/rbac.ts (38 lines)
+
+import { Request, Response, NextFunction } from 'express';
+import { UserRole } from '../types';
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  21 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/middleware/rbac.ts
+
+
+/**
+ * Require one of the specified roles to access the route.
+ * Must be used after `authenticate` middleware.
+ */
+export function requireRole(...roles: UserRole[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({ code: 401, message: '未认证' });
+      return;
+    }
+
+    if (!roles.includes(req.user.role as UserRole)) {
+      res.status(403).json({ code: 403, message: '权限不足' });
+      return;
+    }
+
+    next();
+  };
+}
+
+/**
+ * Requires admin role.
+ */
+export const requireAdmin = requireRole('admin');
+
+/**
+ * Requires admin or auditor role.
+ */
+export const requireAdminOrAuditor = requireRole('admin', 'auditor');
+
+/**
+ * Requires any authenticated user (operator+).
+ */
+export const requireUser = requireRole('admin', 'operator', 'auditor');
+
+// File: server/middleware/validator.ts (30 lines)
+
+import { Request, Response, NextFunction } from 'express';
+import { ZodSchema, ZodError } from 'zod';
+
+/**
+ * Validate request body against a Zod schema.
+ * Returns 400 with formatted errors on failure.
+ */
+export function validate(schema: ZodSchema) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const result = schema.safeParse(req.body);
+
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  22 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/middleware/validator.ts
+
+    if (!result.success) {
+      const errors = (result.error as ZodError).errors.map((e) => ({
+        field: e.path.join('.'),
+        message: e.message,
+      }));
+      res.status(400).json({
+        code: 400,
+        message: '请求参数校验失败',
+        errors,
+      });
+      return;
+    }
+
+    // Replace body with parsed (and transformed) data
+    req.body = result.data;
+    next();
+  };
+}
+
+// File: server/routes/assets.ts (465 lines)
+
+import { Router, Request, Response } from 'express';
+import { z } from 'zod';
+import net from 'net';
+import multer from 'multer';
+import { parse } from 'csv-parse/sync';
+import pool from '../database/connection';
+import { authenticate } from '../middleware/auth';
+import { requireAdmin, requireUser } from '../middleware/rbac';
+import { validate } from '../middleware/validator';
+import { recordAudit, auditFromReq } from '../middleware/audit';
+import { encrypt } from '../utils/crypto';
+import { success, error, paginated } from '../utils/response';
+
+const router = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+// All routes require authentication
+router.use(authenticate);
+
+// ---- Schemas ----
+const createAssetSchema = z.object({
+  name: z.string().min(1).max(128),
+  host: z.string().min(1).max(255),
+  port: z.number().int().min(1).max(65535),
+  protocol: z.enum(['ssh', 'rdp']).optional(),
+  asset_type: z.enum(['host', 'database']).default('host'),
+  username: z.string().max(64).optional().nullable(),
+  password: z.string().max(256).optional().nullable(),
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  23 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/routes/assets.ts
+
+  private_key: z.string().optional().nullable(),
+  group_name: z.string().max(64).default('default'),
+  description: z.string().max(512).optional().nullable(),
+  recording_enabled: z.boolean().optional(),
+  db_type: z.enum(['mssql', 'mysql', 'postgresql']).optional(),
+  database_name: z.string().max(128).optional(),
+});
+
+const updateAssetSchema = createAssetSchema.partial();
+
+// ---- GET /api/assets/groups ----
+router.get('/groups', async (req: Request, res: Response) => {
+  try {
+    const isAdmin = req.user!.role === 'admin';
+    let where = 'WHERE deleted_at IS NULL';
+    const params: any[] = [];
+
+    if (!isAdmin) {
+      where += ` AND id IN (
+        SELECT az.asset_id FROM authorizations az
+        WHERE az.user_id = ?
+        AND (az.start_time IS NULL OR az.start_time <= NOW())
+        AND (az.end_time IS NULL OR az.end_time >= NOW())
+      )`;
+      params.push(req.user!.userId);
+    }
+
+    const [rows] = await pool.query<any[]>(
+      `SELECT DISTINCT group_name FROM assets ${where} ORDER BY group_name ASC`,
+      params
+    );
+
+    success(res, rows.map((r) => r.group_name));
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
+// ---- GET /api/assets/stats ----
+router.get('/stats', async (req: Request, res: Response) => {
+  try {
+    const [rows] = await pool.query<any[]>(
+      `SELECT
+         COUNT(*) as total,
+         SUM(CASE WHEN asset_type != 'database' AND protocol = 'ssh' THEN 1 ELSE 0 END) as ssh,
+         SUM(CASE WHEN asset_type != 'database' AND protocol = 'rdp' THEN 1 ELSE 0 END) as rdp,
+         SUM(CASE WHEN asset_type = 'database' THEN 1 ELSE 0 END) as \`database\`,
+         SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) as online,
+         SUM(CASE WHEN status = 'offline' THEN 1 ELSE 0 END) as offline
+       FROM assets WHERE deleted_at IS NULL`
+    );
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  24 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/routes/assets.ts
+
+    success(res, rows[0]);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
+// ---- GET /api/assets ----
+router.get('/', async (req: Request, res: Response) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 20));
+    const search = req.query.search as string || '';
+    const protocol = req.query.protocol as string || '';
+    const group = req.query.group as string || '';
+    const status = req.query.status as string || '';
+
+    const isAdmin = req.user!.role === 'admin';
+    let where = 'WHERE a.deleted_at IS NULL';
+    const params: any[] = [];
+
+    // Non-admin users can only see authorized assets
+    if (!isAdmin) {
+      where += ` AND a.id IN (
+        SELECT az.asset_id FROM authorizations az
+        WHERE az.user_id = ?
+        AND (az.start_time IS NULL OR az.start_time <= NOW())
+        AND (az.end_time IS NULL OR az.end_time >= NOW())
+      )`;
+      params.push(req.user!.userId);
+    }
+
+    if (search) {
+      where += ' AND (a.name LIKE ? OR a.host LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    if (protocol) {
+      where += ' AND a.protocol = ? AND a.asset_type != ?';
+      params.push(protocol, 'database');
+    }
+    if (group) {
+      where += ' AND a.group_name = ?';
+      params.push(group);
+    }
+    if (status) {
+      where += ' AND a.status = ?';
+      params.push(status);
+    }
+
+    const [countRows] = await pool.query<any[]>(
+      `SELECT COUNT(*) as total FROM assets a ${where}`,
+      params
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  25 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/routes/assets.ts
+
+    );
+    const total = countRows[0].total;
+
+    const offset = (page - 1) * pageSize;
+    const [rows] = await pool.query<any[]>(
+      `SELECT a.id, a.name, a.host, a.port, a.protocol, a.asset_type, a.db_type, a.database_name, a.username, a.group_name, a.description, a.recording_enabled, a.status, a.last_checked_at, a.created_at, a.updated_at
+       FROM assets a ${where} ORDER BY a.id DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
+    );
+
+    paginated(res, rows, total, page, pageSize);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
+// ---- GET /api/assets/:id ----
+router.get('/:id', async (req: Request, res: Response) => {
+  try {
+    const [rows] = await pool.query<any[]>(
+      'SELECT id, name, host, port, protocol, asset_type, db_type, database_name, username, group_name, description, recording_enabled, status, last_checked_at, created_at, updated_at FROM assets WHERE id = ? AND deleted_at IS NULL',
+      [req.params.id]
+    );
+    if (rows.length === 0) {
+      error(res, '资产不存在', 1, 404);
+      return;
+    }
+    success(res, rows[0]);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
+// ---- POST /api/assets (admin only) ----
+router.post('/', requireAdmin, validate(createAssetSchema), async (req: Request, res: Response) => {
+  try {
+    const { name, host, port, protocol, username, password, private_key, group_name, description, recording_enabled, asset_type, db_type, database_name } = req.body;
+
+    const passwordEncrypted = password ? encrypt(password) : null;
+    const privateKeyEncrypted = private_key ? encrypt(private_key) : null;
+    const recordingFlag = recording_enabled === false ? 0 : 1;
+    const assetType = asset_type || 'host';
+    const proto = protocol || (assetType === 'database' ? 'ssh' : 'ssh');
+
+    const [result] = await pool.query<any>(
+      `INSERT INTO assets (name, host, port, protocol, asset_type, db_type, database_name, username, password_encrypted, private_key_encrypted, group_name, description, recording_enabled)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, host, port, proto, assetType, db_type || null, database_name || null, username || null, passwordEncrypted, privateKeyEncrypted, group_name, description || null, recordingFlag]
+    );
+
+    await recordAudit({
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  26 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/routes/assets.ts
+
+      ...auditFromReq(req),
+      action: 'create',
+      targetType: 'asset',
+      targetId: result.insertId,
+      detail: { name, host, port, protocol },
+    });
+
+    success(res, { id: result.insertId }, '资产创建成功', 201);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
+// ---- PUT /api/assets/:id (admin only) ----
+router.put('/:id', requireAdmin, validate(updateAssetSchema), async (req: Request, res: Response) => {
+  try {
+    const assetId = parseInt(req.params.id as string);
+
+    const [existing] = await pool.query<any[]>(
+      'SELECT * FROM assets WHERE id = ? AND deleted_at IS NULL',
+      [assetId]
+    );
+    if (existing.length === 0) {
+      error(res, '资产不存在', 1, 404);
+      return;
+    }
+
+    const updates: string[] = [];
+    const params: any[] = [];
+
+    const { name, host, port, protocol, username, password, private_key, group_name, description, recording_enabled } = req.body;
+
+    if (name !== undefined) { updates.push('name = ?'); params.push(name); }
+    if (host !== undefined) { updates.push('host = ?'); params.push(host); }
+    if (port !== undefined) { updates.push('port = ?'); params.push(port); }
+    if (protocol !== undefined) { updates.push('protocol = ?'); params.push(protocol); }
+    if (username !== undefined) { updates.push('username = ?'); params.push(username); }
+    if (password !== undefined) {
+      updates.push('password_encrypted = ?');
+      params.push(encrypt(password));
+    }
+    if (private_key !== undefined) {
+      updates.push('private_key_encrypted = ?');
+      params.push(encrypt(private_key));
+    }
+    if (group_name !== undefined) { updates.push('group_name = ?'); params.push(group_name); }
+    if (description !== undefined) { updates.push('description = ?'); params.push(description); }
+    if (recording_enabled !== undefined) {
+      updates.push('recording_enabled = ?');
+      params.push(recording_enabled ? 1 : 0);
+    }
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  27 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/routes/assets.ts
+
+
+    if (updates.length === 0) {
+      error(res, '没有需要更新的字段', 1, 400);
+      return;
+    }
+
+    params.push(assetId);
+    await pool.query(`UPDATE assets SET ${updates.join(', ')} WHERE id = ?`, params);
+
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'update',
+      targetType: 'asset',
+      targetId: assetId,
+    });
+
+    success(res, null, '资产更新成功');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
+// ---- PATCH /api/assets/:id/recording (admin only) ----
+router.patch('/:id/recording', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const assetId = parseInt(req.params.id as string, 10);
+    const enabled = req.body?.recording_enabled ?? req.body?.enabled;
+    if (enabled === undefined) {
+      error(res, '缺少 recording_enabled 参数', 1, 400);
+      return;
+    }
+
+    const [existing] = await pool.query<any[]>(
+      'SELECT id FROM assets WHERE id = ? AND deleted_at IS NULL',
+      [assetId]
+    );
+    if (existing.length === 0) {
+      error(res, '资产不存在', 1, 404);
+      return;
+    }
+
+    const flag = enabled ? 1 : 0;
+    await pool.query('UPDATE assets SET recording_enabled = ? WHERE id = ?', [flag, assetId]);
+
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'update',
+      targetType: 'asset',
+      targetId: assetId,
+      detail: { recording_enabled: Boolean(enabled) },
+    });
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  28 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/routes/assets.ts
+
+
+    success(res, { recording_enabled: Boolean(enabled) }, enabled ? '已开启会话回放' : '已关闭会话回放');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
+// ---- DELETE /api/assets/:id (admin only) ----
+router.delete('/:id', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const assetId = parseInt(req.params.id as string);
+
+    const [existing] = await pool.query<any[]>(
+      'SELECT name FROM assets WHERE id = ? AND deleted_at IS NULL',
+      [assetId]
+    );
+    if (existing.length === 0) {
+      error(res, '资产不存在', 1, 404);
+      return;
+    }
+
+    await pool.query('UPDATE assets SET deleted_at = NOW() WHERE id = ?', [assetId]);
+
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'delete',
+      targetType: 'asset',
+      targetId: assetId,
+      detail: { name: existing[0].name },
+    });
+
+    success(res, null, '资产已删除');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
+// ---- POST /api/assets/:id/test ----
+router.post('/:id/test', async (req: Request, res: Response) => {
+  try {
+    const assetId = parseInt(req.params.id as string);
+
+    const [rows] = await pool.query<any[]>(
+      'SELECT * FROM assets WHERE id = ? AND deleted_at IS NULL',
+      [assetId]
+    );
+    if (rows.length === 0) {
+      error(res, '资产不存在', 1, 404);
+      return;
+    }
+
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  29 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/routes/assets.ts
+
+    const asset = rows[0];
+    const startTime = Date.now();
+
+    // Simple TCP connectivity test
+    await new Promise<void>((resolve, reject) => {
+      const socket = new net.Socket();
+      socket.setTimeout(5000);
+
+      socket.on('connect', () => {
+        socket.destroy();
+        resolve();
+      });
+
+      socket.on('timeout', () => {
+        socket.destroy();
+        reject(new Error('连接超时'));
+      });
+
+      socket.on('error', (err) => {
+        socket.destroy();
+        reject(err);
+      });
+
+      socket.connect(asset.port, asset.host);
+    });
+
+    const latencyMs = Date.now() - startTime;
+
+    await pool.query(
+      'UPDATE assets SET status = ?, last_checked_at = NOW() WHERE id = ?',
+      ['online', assetId]
+    );
+
+    success(res, { success: true, latencyMs }, '连接成功');
+  } catch (err: any) {
+    await pool.query(
+      'UPDATE assets SET status = ?, last_checked_at = NOW() WHERE id = ?',
+      ['offline', parseInt(req.params.id as string)]
+    );
+    success(res, { success: false, latencyMs: 0, error: err.message }, '连接失败');
+  }
+});
+
+// ---- PATCH /api/assets/group/rename (admin only) ----
+router.patch('/group/rename', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { oldName, newName } = req.body;
+    if (!oldName || !newName || !newName.trim()) {
+      error(res, '分组名称不能为空', 1, 400);
+      return;
+    }
+// --- continued on next page ---
+
+
+============================================================
+  堡垒机安全远程运维管理平台 V1.0         第  30 页
+  源代码文档 - project source
+============================================================
+
+// (continued) server/routes/assets.ts
+
+    const [result] = await pool.query<any>(
+      'UPDATE assets SET group_name = ? WHERE group_name = ? AND deleted_at IS NULL',
+      [newName.trim(), oldName]
+    );
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'update',
+      targetType: 'asset_group',
+      detail: { oldName, newName: newName.trim(), affected: result.affectedRows },
+    });
+    success(res, { affected: result.affectedRows }, `已将 ${result.affectedRows} 个资产移至分组「${newName.trim()}」`);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+
+// ---- POST /api/assets/import (admin only) ----
+router.post('/import', requireAdmin, upload.single('file'), async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      error(res, '请上传 CSV 文件', 1, 400);
+      return;
+    }
+
+    const csvContent = req.file.buffer.toString('utf8');
+    const records = parse(csvContent, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    });
+
+    let imported = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < records.length; i++) {
+      const row = records[i];
+      try {
+        if (!row.name || !row.host || !row.port || !row.protocol) {
+          skipped++;
+          errors.push(`第 ${i + 2} 行: 缺少必填字段`);
+          continue;
+        }
+
+        const port = parseInt(row.port);
+        if (isNaN(port) || port < 1 || port > 65535) {
+          skipped++;
+          errors.push(`第 ${i + 2} 行: 端口号无效`);
+          continue;
+        }
+
+// --- continued on next page ---
+

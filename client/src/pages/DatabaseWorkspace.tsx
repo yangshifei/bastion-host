@@ -50,10 +50,17 @@ import type { editor } from 'monaco-editor';
 import type { SafeAsset } from '../types';
 import type { DbSession } from '../services/databaseService';
 
-const DB_META: Record<string, { label: string; color: string; tag: 'primary' | 'warning' | 'danger' }> = {
-  mysql: { label: 'MySQL', color: 'bg-blue-500', tag: 'primary' },
-  postgresql: { label: 'PostgreSQL', color: 'bg-indigo-500', tag: 'primary' },
-  mssql: { label: 'SQL Server', color: 'bg-red-500', tag: 'danger' },
+const DB_META: Record<string, { label: string; abbr: string; color: string; bg: string; tag: 'primary' | 'warning' | 'danger' }> = {
+  mysql: { label: 'MySQL', abbr: 'MY', color: 'text-blue-400', bg: 'bg-blue-500/15', tag: 'primary' },
+  postgresql: { label: 'PostgreSQL', abbr: 'PG', color: 'text-indigo-400', bg: 'bg-indigo-500/15', tag: 'primary' },
+  mssql: { label: 'SQL Server', abbr: 'MS', color: 'text-orange-400', bg: 'bg-orange-500/15', tag: 'warning' },
+};
+
+const DbBadge: React.FC<{ dbType: string; size?: 'sm' | 'md' }> = ({ dbType, size = 'sm' }) => {
+  const m = DB_META[dbType];
+  if (!m) return <span className={`${size === 'md' ? 'w-4 h-4' : 'w-3.5 h-3.5'} rounded-full shrink-0 bg-slate-500`} />;
+  const dim = size === 'md' ? 'w-4 h-4 text-[9px]' : 'w-3.5 h-3.5 text-[8px]';
+  return <span className={`inline-flex items-center justify-center ${dim} rounded ${m.bg} ${m.color} font-bold shrink-0`}>{m.abbr}</span>;
 };
 
 function quoteTable(name: string, dbType: string): string {
@@ -179,11 +186,7 @@ const InstanceList: React.FC<{
       width: 180,
       cell: ({ row }: { row: SafeAsset }) => (
         <div className="flex items-center gap-2 min-w-0">
-          <span
-            className={`w-2 h-2 rounded-full shrink-0 ${
-              DB_META[(row as SafeAsset & { db_type?: string }).db_type || '']?.color || 'bg-slate-500'
-            }`}
-          />
+          <DbBadge dbType={(row as SafeAsset & { db_type?: string }).db_type || ''} />
           <span className="font-medium text-[var(--text-primary)] truncate">{row.name}</span>
         </div>
       ),
@@ -654,7 +657,7 @@ const DmcWorkspace: React.FC<{
           <Button variant="text" size="small" onClick={onBack}>
             ← 实例列表
           </Button>
-          <span className={`w-2 h-2 rounded-full shrink-0 ${DB_META[dbType]?.color || 'bg-slate-500'}`} />
+          <DbBadge dbType={dbType} size="md" />
           <span className="text-sm font-semibold text-slate-100 truncate">{selected.name}</span>
           <code className="text-xs text-slate-500 hidden sm:inline truncate">
             {selected.host}:{selected.port}/{dbName}
@@ -674,7 +677,7 @@ const DmcWorkspace: React.FC<{
               value: a.id,
               content: (
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${DB_META[(a as SafeAsset & { db_type?: string }).db_type || '']?.color || 'bg-slate-500'}`} />
+                  <DbBadge dbType={(a as SafeAsset & { db_type?: string }).db_type || ''} />
                   <span className="truncate">{a.name}</span>
                   <code className="text-[10px] text-slate-500 ml-auto shrink-0 hidden sm:inline truncate">{a.host}</code>
                 </div>
@@ -875,7 +878,7 @@ const DmcWorkspace: React.FC<{
                       />
                       {results.rows.length >= 200 && (
                         <p className="dmc-result-footnote text-xs text-amber-400 text-center py-2">
-                          结果集超过 200 行，仅显示前 200 行
+                          结果集超过 1000 行，仅显示前 1000 行
                         </p>
                       )}
                     </div>
