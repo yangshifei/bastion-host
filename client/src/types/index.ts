@@ -120,6 +120,7 @@ export interface AuditLog {
   action: string;
   target_type: string | null;
   target_id: number | null;
+  target_name?: string | null;
   detail: Record<string, any> | null;
   ip: string | null;
   user_agent: string | null;
@@ -143,6 +144,18 @@ export interface DashboardStats {
   protocolDist?: Record<string, number>;
   todaySessionsDetail?: number;
   recentSessions: Session[];
+  dbAssets?: { total: number; mysql?: number; postgresql?: number; mssql?: number };
+  sshAssets?: number;
+  rdpAssets?: number;
+  todayQueries?: number;
+  querySuccessCount?: number;
+  queryErrorCount?: number;
+  todayFailedLogins?: number;
+  recentQueries?: {
+    id: number; username: string; query_text: string;
+    db_name?: string; status: string; row_count?: number;
+    duration_ms?: number; executed_at: string;
+  }[];
 }
 
 // ---- MFA ----

@@ -1,0 +1,3890 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>堡垒机安全远程运维管理平台 V1.0 - 源代码文档</title>
+<style>
+  @page {
+    size: A4;
+    margin: 15mm 12mm 15mm 12mm;
+  }
+  body {
+    font-family: 'Microsoft YaHei', '微软雅黑', sans-serif;
+    font-size: 7.5pt;
+    line-height: 1.4;
+    color: #000;
+    margin: 0;
+    padding: 0;
+  }
+  .page {
+    page-break-after: always;
+    padding: 0;
+  }
+  .page:last-child {
+    page-break-after: auto;
+  }
+  .header {
+    text-align: center;
+    border-bottom: 1px solid #000;
+    padding-bottom: 4px;
+    margin-bottom: 8px;
+    font-size: 8pt;
+  }
+  .header .title {
+    font-weight: bold;
+  }
+  .code {
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: 'Consolas', 'Courier New', 'Microsoft YaHei', monospace;
+    margin: 0;
+    padding: 0;
+  }
+  @media print {
+    body { -webkit-print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 1 页 / 共 60 页
+</div>
+<div class="code">// server/app.ts
+
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
+import authRoutes from './routes/auth';
+import usersRoutes from './routes/users';
+import assetsRoutes from './routes/assets';
+import authorizationsRoutes from './routes/authorizations';
+import sessionsRoutes from './routes/sessions';
+import auditRoutes from './routes/audit';
+import securityRoutes from './routes/security';
+import databaseRoutes from './routes/database';
+import { errorHandler } from './middleware/errorHandler';
+import { apiLimiter } from './middleware/rateLimiter';
+import { authenticate } from './middleware/auth';
+import pool from './database/connection';
+const app = express();
+// Trust reverse proxy (nginx) so req.ip uses X-Forwarded-For
+app.set('trust proxy', 1);
+// ---- Security headers ----
+// Disable HSTS / upgrade-insecure-requests on plain HTTP (e.g. LAN IP access).
+// Enable via ENABLE_HSTS=1 when terminating TLS at nginx/reverse proxy.
+const enableHsts = process.env.ENABLE_HSTS === '1';
+const cspDirectives: Record&lt;string, string[] | null&gt; = {
+  defaultSrc: [&quot;'self'&quot;],
+  scriptSrc: [&quot;'self'&quot;, &quot;'unsafe-eval'&quot;],
+  styleSrc: [&quot;'self'&quot;, &quot;'unsafe-inline'&quot;],
+  imgSrc: [&quot;'self'&quot;, &quot;data:&quot;, &quot;blob:&quot;],
+  connectSrc: [&quot;'self'&quot;, &quot;ws:&quot;, &quot;wss:&quot;],
+  fontSrc: [&quot;'self'&quot;, &quot;data:&quot;],
+  workerSrc: [&quot;'self'&quot;, &quot;blob:&quot;],
+};
+if (!enableHsts) {
+  cspDirectives.upgradeInsecureRequests = null;
+}
+app.use(helmet({
+  strictTransportSecurity: enableHsts,
+  contentSecurityPolicy: {
+    directives: cspDirectives,
+  },
+  crossOriginOpenerPolicy: false,
+  originAgentCluster: false,
+}));
+app.use(cookieParser());
+// ---- CORS ----
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production'
+    ? false
+    : ['http://localhost:5173', 'http://localhost:3001'],
+  credentials: true,
+}));
+// ---- Body parsing ----
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: false }));
+// ---- Rate limiting (general API) ----
+app.use('/api', apiLimiter);
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 2 页 / 共 60 页
+</div>
+<div class="code">// ---- Routes ----
+app.use('/api/auth', authRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/assets', assetsRoutes);
+app.use('/api/authorizations', authorizationsRoutes);
+app.use('/api/sessions', sessionsRoutes);
+app.use('/api/audit', auditRoutes);
+app.use('/api/security', securityRoutes);
+app.use('/api', securityRoutes);  // also mount at /api for /api/notifications etc.
+app.use('/api/database', databaseRoutes);
+// ---- Dashboard stats ----
+app.get('/api/dashboard/stats', authenticate, async (_req, res) =&gt; {
+  try {
+    const [totalAssets] = await pool.query&lt;any[]&gt;('SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL');
+    const [onlineAssets] = await pool.query&lt;any[]&gt;(&quot;SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND status = 'online'&quot;);
+    const [totalUsers] = await pool.query&lt;any[]&gt;('SELECT COUNT(*) as count FROM users WHERE deleted_at IS NULL');
+    const [activeSessions] = await pool.query&lt;any[]&gt;(&quot;SELECT COUNT(*) as count FROM sessions WHERE status = 'active'&quot;);
+    const [todaySessions] = await pool.query&lt;any[]&gt;(&quot;SELECT COUNT(*) as count FROM sessions WHERE start_time &gt;= CURDATE()&quot;);
+    const [totalSessions] = await pool.query&lt;any[]&gt;('SELECT COUNT(*) as count FROM sessions');
+    const [commandStats] = await pool.query&lt;any[]&gt;('SELECT COUNT(*) as total FROM command_logs');
+    const [dangerousStats] = await pool.query&lt;any[]&gt;('SELECT COUNT(*) as count FROM command_logs WHERE is_dangerous = 1');
+    const [recentSessions] = await pool.query&lt;any[]&gt;(
+      `SELECT s.*, u.username, a.name as asset_name
+       FROM sessions s JOIN users u ON s.user_id = u.id JOIN assets a ON s.asset_id = a.id
+       ORDER BY s.start_time DESC LIMIT 5`
+    );
+    const [sessionTrend] = await pool.query&lt;any[]&gt;(
+      `SELECT DATE(start_time) as date, COUNT(*) as count
+       FROM sessions WHERE start_time &gt;= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+       GROUP BY DATE(start_time) ORDER BY date`
+    );
+    const [protocolDist] = await pool.query&lt;any[]&gt;(
+      `SELECT protocol, COUNT(*) as count FROM assets WHERE deleted_at IS NULL GROUP BY protocol`
+    );
+    const [dbDist] = await pool.query&lt;any[]&gt;(
+      `SELECT db_type, COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND asset_type = 'database' GROUP BY db_type`
+    );
+    const [todayQueries] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as count FROM query_history WHERE executed_at &gt;= CURDATE()`
+    );
+    const [todayQueryStats] = await pool.query&lt;any[]&gt;(
+      `SELECT status, COUNT(*) as count FROM query_history WHERE executed_at &gt;= CURDATE() GROUP BY status`
+    );
+    const [recentQueries] = await pool.query&lt;any[]&gt;(
+      `SELECT qh.*, u.username
+       FROM query_history qh JOIN users u ON qh.user_id = u.id
+       ORDER BY qh.executed_at DESC LIMIT 5`
+    );
+    const [dbAssetsTotal] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND asset_type = 'database'`
+    );
+    const [sshAssets] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND asset_type != 'database' AND protocol = 'ssh'`
+    );
+    const [rdpAssets] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND asset_type != 'database' AND protocol = 'rdp'`
+    );
+    const [todayFailedLogins] = await pool.query&lt;any[]&gt;(
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 3 页 / 共 60 页
+</div>
+<div class="code">      `SELECT COUNT(*) as count FROM login_logs WHERE created_at &gt;= CURDATE() AND result LIKE 'fail%'`
+    );
+    res.json({
+      code: 0,
+      message: 'ok',
+      data: {
+        totalAssets: totalAssets[0].count,
+        onlineAssets: onlineAssets[0].count,
+        offlineAssets: totalAssets[0].count - onlineAssets[0].count,
+        totalUsers: totalUsers[0].count,
+        activeSessions: activeSessions[0].count,
+        todaySessions: todaySessions[0].count,
+        totalSessions: totalSessions[0].count,
+        commandStats: {
+          total: commandStats[0].total,
+          dangerous: dangerousStats[0].count,
+        },
+        sessionTrend,
+        protocolDist: {
+          ...protocolDist.reduce((acc: any, r: any) =&gt; ({ ...acc, [r.protocol]: r.count }), {}),
+          ...dbDist.reduce((acc: any, r: any) =&gt; ({ ...acc, [r.db_type]: r.count }), {}),
+        },
+        dbAssets: { total: dbAssetsTotal[0].count, ...dbDist.reduce((acc: any, r: any) =&gt; ({ ...acc, [r.db_type]: r.count }), {}) },
+        sshAssets: sshAssets[0].count,
+        rdpAssets: rdpAssets[0].count,
+        todayQueries: todayQueries[0].count,
+        querySuccessCount: todayQueryStats.filter((r: any) =&gt; r.status === 'success').reduce((s: number, r: any) =&gt; s + r.count, 0),
+        queryErrorCount: todayQueryStats.filter((r: any) =&gt; r.status === 'error').reduce((s: number, r: any) =&gt; s + r.count, 0),
+        todayFailedLogins: todayFailedLogins[0].count,
+        recentSessions,
+        recentQueries: (recentQueries || []).map((q: any) =&gt; ({
+          ...q,
+          query_text: (q.query_text || '').length &gt; 100 ? (q.query_text || '').substring(0, 100) + '...' : (q.query_text || ''),
+        })),
+      },
+    });
+  } catch (err) {
+    res.json({
+      code: 0,
+      message: 'ok',
+      data: {
+        totalAssets: 0, onlineAssets: 0, offlineAssets: 0,
+        totalUsers: 0, activeSessions: 0, todaySessions: 0, totalSessions: 0,
+        commandStats: { total: 0, dangerous: 0 },
+        sessionTrend: [],
+        protocolDist: {},
+        dbAssets: { total: 0 },
+        sshAssets: 0,
+        rdpAssets: 0,
+        todayQueries: 0,
+        querySuccessCount: 0,
+        queryErrorCount: 0,
+        todayFailedLogins: 0,
+        recentSessions: [],
+        recentQueries: [],
+      },
+    });
+  }
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 4 页 / 共 60 页
+</div>
+<div class="code">});
+// ---- Health check ----
+app.get('/health', async (_req, res) =&gt; {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ok', uptime: process.uptime(), db: 'connected' });
+  } catch {
+    res.status(503).json({ status: 'error', db: 'disconnected' });
+  }
+});
+app.get('/ready', async (_req, res) =&gt; {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ready' });
+  } catch {
+    res.status(503).json({ status: 'not_ready', reason: 'db_not_connected' });
+  }
+});
+// ---- Serve static files in production ----
+if (process.env.NODE_ENV === 'production') {
+  const path = require('path');
+  app.use(express.static(path.resolve(__dirname, '../../client/dist')));
+  app.get('*', (_req, res) =&gt; {
+    res.sendFile(path.resolve(__dirname, '../../client/dist/index.html'));
+  });
+}
+// ---- Error handler (must be last) ----
+app.use(errorHandler);
+export default app;
+
+// server/config.ts
+
+import dotenv from 'dotenv';
+import path from 'path';
+// Load .env from server directory (and parent as fallback)
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+export const config = {
+  port: parseInt(process.env.PORT || '3001', 10),
+  nodeEnv: process.env.NODE_ENV || 'development',
+  isDev: (process.env.NODE_ENV || 'development') === 'development',
+  jwt: {
+    secret: process.env.JWT_SECRET || 'dev-jwt-secret-change-in-production-min-32-bytes',
+    expiresIn: process.env.JWT_EXPIRES_IN || '2h',
+  },
+  encryption: {
+    secret: process.env.ENCRYPTION_SECRET || 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6', // 32 hex bytes
+  },
+  db: {
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '3306', 10),
+    user: process.env.DB_USER || 'bastion',
+    password: process.env.DB_PASSWORD || 'bastion123',
+    database: process.env.DB_NAME || 'bastion_host',
+  },
+  guacd: {
+    host: process.env.GUACD_HOST || 'localhost',
+    port: parseInt(process.env.GUACD_PORT || '4822', 10),
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 5 页 / 共 60 页
+</div>
+<div class="code">  },
+  log: {
+    level: process.env.LOG_LEVEL || 'debug',
+  },
+  session: {
+    idleTimeout: parseInt(process.env.SESSION_IDLE_TIMEOUT || '900', 10),
+    maxDuration: parseInt(process.env.SESSION_MAX_DURATION || '28800', 10),
+    maxPerUser: parseInt(process.env.MAX_SESSIONS_PER_USER || '5', 10),
+  },
+  security: {
+    loginMaxFails: parseInt(process.env.LOGIN_MAX_FAILS || '5', 10),
+    loginLockMinutes: parseInt(process.env.LOGIN_LOCK_MINUTES || '15', 10),
+    passwordMinLength: parseInt(process.env.PASSWORD_MIN_LENGTH || '8', 10),
+    passwordExpireDays: parseInt(process.env.PASSWORD_EXPIRE_DAYS || '90', 10),
+  },
+  rateLimit: {
+    loginMax: parseInt(process.env.RATE_LIMIT_LOGIN_MAX || '20', 10),
+    loginWindowMs: parseInt(process.env.RATE_LIMIT_LOGIN_WINDOW_MS || '60000', 10),
+    apiMax: parseInt(process.env.RATE_LIMIT_API_MAX || '200', 10),
+    apiWindowMs: parseInt(process.env.RATE_LIMIT_API_WINDOW_MS || '60000', 10),
+  },
+  retention: {
+    commandLogDays: parseInt(process.env.COMMAND_LOG_RETENTION_DAYS || '90', 10),
+    auditLogDays: parseInt(process.env.AUDIT_LOG_RETENTION_DAYS || '365', 10),
+    sessionDays: parseInt(process.env.SESSION_RETENTION_DAYS || '90', 10),
+  },
+};
+export default config;
+
+// server/database/connection.ts
+
+import mysql from 'mysql2/promise';
+import config from '../config';
+import logger from '../utils/logger';
+export const pool = mysql.createPool({
+  host: config.db.host,
+  port: config.db.port,
+  user: config.db.user,
+  password: config.db.password,
+  database: config.db.database,
+  charset: 'utf8mb4',
+  timezone: '+08:00',
+  dateStrings: true,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 10000,
+});
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(pool as any).on('error', (err: any) =&gt; {
+  logger.error({ err }, 'MySQL pool error');
+});
+export async function initPool(): Promise&lt;void&gt; {
+  try {
+    const conn = await pool.getConnection();
+    await conn.ping();
+    conn.release();
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 6 页 / 共 60 页
+</div>
+<div class="code">    logger.info('MySQL connected successfully');
+    await runMigrations();
+  } catch (err) {
+    logger.error({ err }, 'MySQL connection failed');
+    throw err;
+  }
+}
+async function runMigrations(): Promise&lt;void&gt; {
+  // Helper: run ALTER TABLE, ignore if column already exists
+  const safeAlter = async (sql: string, label: string) =&gt; {
+    try {
+      await pool.query(sql);
+      logger.info(`Migration: ${label}`);
+    } catch (err: any) {
+      if (err?.code !== 'ER_DUP_FIELDNAME') {
+        logger.warn({ err, code: err?.code }, `Migration ${label} skipped`);
+      }
+    }
+  };
+  // Helper: create table if not exists
+  const safeCreate = async (sql: string, label: string) =&gt; {
+    try {
+      await pool.query(sql);
+      logger.info(`Migration: ${label}`);
+    } catch (err: any) {
+      logger.warn({ err, code: err?.code }, `Migration ${label} skipped`);
+    }
+  };
+  await safeAlter(
+    `ALTER TABLE assets ADD COLUMN recording_enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否开启会话录像回放'`,
+    'assets.recording_enabled'
+  );
+  // ── 002-login-security ──
+  await safeAlter(
+    `ALTER TABLE users ADD COLUMN password_changed_at DATETIME DEFAULT NULL COMMENT '密码最后修改时间'`,
+    'users.password_changed_at'
+  );
+  await safeAlter(
+    `ALTER TABLE users ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0 COMMENT '下次登录强制修改密码'`,
+    'users.must_change_password'
+  );
+  await safeAlter(
+    `ALTER TABLE users ADD COLUMN known_ips JSON DEFAULT NULL COMMENT '已登录过的IP列表'`,
+    'users.known_ips'
+  );
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS password_history (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL, password_hash VARCHAR(255) NOT NULL,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       INDEX idx_user_created (user_id, created_at DESC),
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table password_history'
+  );
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS ip_whitelist (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 7 页 / 共 60 页
+</div>
+<div class="code">       network VARCHAR(45) NOT NULL, mask INT NOT NULL,
+       description VARCHAR(255) DEFAULT NULL,
+       enabled TINYINT(1) NOT NULL DEFAULT 1,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table ip_whitelist'
+  );
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS user_ip_bindings (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL UNIQUE, ip_address VARCHAR(45) NOT NULL,
+       description VARCHAR(255) DEFAULT NULL,
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table user_ip_bindings'
+  );
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS login_notifications (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL,
+       type ENUM('new_ip_login','failed_login','account_locked','password_changed') NOT NULL,
+       ip VARCHAR(45) DEFAULT NULL, detail JSON DEFAULT NULL,
+       \`read\` TINYINT(1) NOT NULL DEFAULT 0,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       INDEX idx_user_read (user_id, \`read\`, created_at DESC),
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table login_notifications'
+  );
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS system_config (
+       config_key VARCHAR(64) PRIMARY KEY,
+       config_value JSON NOT NULL,
+       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table system_config'
+  );
+  // Insert default password policy if not exists
+  try {
+    await pool.query(
+      `INSERT IGNORE INTO system_config (config_key, config_value) VALUES ('password_policy', ?)`,
+      [JSON.stringify({
+        min_length: 8, require_upper: true, require_lower: true, require_digit: true,
+        require_special: false, expire_days: 90, history_count: 5,
+        force_change_on_create: true, captcha_threshold: 3,
+        lockout_threshold: 10, lockout_minutes: 15,
+      })]
+    );
+  } catch (err: any) {
+    logger.warn({ err }, 'Migration default password_policy skipped');
+  }
+  // ── 003-email-mfa ──
+  await safeAlter(
+    `ALTER TABLE users ADD COLUMN mfa_method ENUM('totp','email') DEFAULT NULL COMMENT 'MFA 方式'`,
+    'users.mfa_method'
+  );
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS email_mfa_codes (
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 8 页 / 共 60 页
+</div>
+<div class="code">       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL,
+       code_hash VARCHAR(255) NOT NULL,
+       email VARCHAR(128) NOT NULL,
+       expires_at DATETIME NOT NULL,
+       attempts INT NOT NULL DEFAULT 0,
+       session_token VARCHAR(128) NOT NULL UNIQUE,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+       INDEX idx_session (session_token)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table email_mfa_codes'
+  );
+  // ── 005-database-asset-management ──
+  await safeAlter(
+    `ALTER TABLE assets ADD COLUMN asset_type ENUM('host','database') NOT NULL DEFAULT 'host' COMMENT '资产类型：主机/数据库'`,
+    'assets.asset_type'
+  );
+  await safeAlter(
+    `ALTER TABLE assets ADD COLUMN db_type ENUM('mssql','mysql','postgresql') DEFAULT NULL COMMENT '数据库类型'`,
+    'assets.db_type'
+  );
+  await safeAlter(
+    `ALTER TABLE assets ADD COLUMN database_name VARCHAR(128) DEFAULT NULL COMMENT '数据库名'`,
+    'assets.database_name'
+  );
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS query_history (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL,
+       asset_id INT NOT NULL,
+       query_text TEXT NOT NULL,
+       db_name VARCHAR(128) DEFAULT NULL,
+       status ENUM('success','error') NOT NULL,
+       row_count INT DEFAULT NULL,
+       duration_ms INT DEFAULT NULL,
+       error_message TEXT DEFAULT NULL,
+       executed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+       FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+       INDEX idx_user_time (user_id, executed_at DESC)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table query_history'
+  );
+  await safeCreate(
+    `CREATE TABLE IF NOT EXISTS saved_queries (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       user_id INT NOT NULL,
+       asset_id INT DEFAULT NULL,
+       name VARCHAR(128) NOT NULL,
+       query_text TEXT NOT NULL,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+       INDEX idx_user (user_id)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    'table saved_queries'
+  );
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 9 页 / 共 60 页
+</div>
+<div class="code">}
+export default pool;
+
+// server/database/migrate.ts
+
+import fs from 'fs';
+import path from 'path';
+import mysql from 'mysql2/promise';
+import dotenv from 'dotenv';
+// Load .env
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+async function migrate() {
+  // Connect without database first to create it
+  const initPool = mysql.createPool({
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '3306', 10),
+    user: process.env.DB_USER || 'bastion',
+    password: process.env.DB_PASSWORD || 'bastion123',
+    charset: 'utf8mb4',
+  });
+  const schemaPath = path.resolve(__dirname, 'schema.sql');
+  if (!fs.existsSync(schemaPath)) {
+    console.error(`Schema file not found: ${schemaPath}`);
+    process.exit(1);
+  }
+  const schema = fs.readFileSync(schemaPath, 'utf8');
+  // Split on semicolons, filter out empty statements and comments
+  const statements = schema
+    .split(';')
+    .map(s =&gt; s.trim())
+    .filter(s =&gt; s.length &gt; 0 &amp;&amp; !s.startsWith('--') &amp;&amp; s !== '');
+  console.log(`Found ${statements.length} SQL statements to execute`);
+  for (let i = 0; i &lt; statements.length; i++) {
+    const stmt = statements[i];
+    try {
+      await initPool.query(stmt);
+      const preview = stmt.substring(0, 60).replace(/\n/g, ' ').trim();
+      console.log(`[${i + 1}/${statements.length}] OK: ${preview}...`);
+    } catch (err: any) {
+      // Ignore &quot;database exists&quot; errors
+      if (err.code === 'ER_DB_CREATE_EXISTS') {
+        console.log(`[${i + 1}/${statements.length}] SKIP: Database already exists`);
+      } else {
+        console.error(`[${i + 1}/${statements.length}] ERROR: ${err.message}`);
+      }
+    }
+  }
+  await initPool.end();
+  console.log('Migration completed.');
+}
+migrate().catch((err) =&gt; {
+  console.error('Migration failed:', err);
+  process.exit(1);
+});
+
+// server/index.ts
+
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 10 页 / 共 60 页
+</div>
+<div class="code">import http from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
+import url from 'url';
+import app from './app';
+import config from './config';
+import logger from './utils/logger';
+import { initPool } from './database/connection';
+import { sessionManager } from './terminal/sessionManager';
+import { handleSSHConnection } from './terminal/sshHandler';
+import { handleRDPConnection } from './terminal/rdpHandler';
+import { setSessionManager } from './routes/sessions';
+import { startCleanupService } from './services/cleanupService';
+async function main() {
+  // Initialize database
+  await initPool();
+  // Initialize recordings directory
+  const fs = await import('fs');
+  const path = await import('path');
+  const recordingsDir = path.resolve(process.cwd(), 'recordings');
+  if (!fs.existsSync(recordingsDir)) {
+    fs.mkdirSync(recordingsDir, { recursive: true });
+    logger.info({ path: recordingsDir }, 'Created recordings directory');
+  }
+  // Create HTTP server
+  const server = http.createServer(app);
+  // WebSocket server (noServer mode — manual upgrade)
+  const wss = new WebSocketServer({
+    noServer: true,
+    handleProtocols: (protocols, request) =&gt; {
+      const pathname = request.url ? url.parse(request.url).pathname : '';
+      if (pathname === '/ws/rdp' &amp;&amp; protocols.has('guacamole')) {
+        return 'guacamole';
+      }
+      return false;
+    },
+  });
+  // Set session manager reference for routes
+  setSessionManager(sessionManager);
+  // Handle upgrade requests
+  server.on('upgrade', (request, socket, head) =&gt; {
+    const pathname = request.url ? url.parse(request.url).pathname : '';
+    if (pathname === '/ws/ssh') {
+      wss.handleUpgrade(request, socket, head, (ws) =&gt; {
+        handleSSHConnection(ws, request, sessionManager);
+      });
+    } else if (pathname === '/ws/rdp') {
+      wss.handleUpgrade(request, socket, head, (ws) =&gt; {
+        handleRDPConnection(ws, request, sessionManager);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
+  // Start listening
+  server.listen(config.port, () =&gt; {
+    logger.info({ port: config.port, env: config.nodeEnv }, 'Server started');
+  });
+  // Start data retention cleanup service
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 11 页 / 共 60 页
+</div>
+<div class="code">  startCleanupService();
+  // ---- Graceful shutdown ----
+  const shutdown = async (signal: string) =&gt; {
+    logger.info({ signal }, 'Received shutdown signal');
+    // Step 1: Stop accepting new connections
+    server.close();
+    logger.info('HTTP server closed');
+    // Step 2: Notify and drain active sessions
+    try {
+      await sessionManager.drain(10000);
+    } catch (err) {
+      logger.error({ err }, 'Error draining sessions');
+    }
+    // Step 3: Close database pool
+    try {
+      const { pool } = await import('./database/connection');
+      await pool.end();
+      logger.info('Database pool closed');
+    } catch (err) {
+      logger.error({ err }, 'Error closing database pool');
+    }
+    // Step 4: Exit
+    logger.info('Shutdown complete');
+    process.exit(0);
+  };
+  process.on('SIGTERM', () =&gt; shutdown('SIGTERM'));
+  process.on('SIGINT', () =&gt; shutdown('SIGINT'));
+}
+main().catch((err) =&gt; {
+  logger.error({ err }, 'Failed to start server');
+  process.exit(1);
+});
+
+// server/middleware/audit.ts
+
+import { Request } from 'express';
+import pool from '../database/connection';
+import logger from '../utils/logger';
+export interface AuditParams {
+  userId?: number | null;
+  username?: string | null;
+  action: string;
+  targetType?: string | null;
+  targetId?: number | null;
+  detail?: Record&lt;string, any&gt; | null;
+  ip?: string | null;
+  userAgent?: string | null;
+}
+/**
+ * Record an audit log entry. Non-blocking — errors are logged but swallowed.
+ */
+export async function recordAudit(params: AuditParams): Promise&lt;void&gt; {
+  try {
+    await pool.query(
+      `INSERT INTO audit_logs (user_id, username, action, target_type, target_id, detail, ip, user_agent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        params.userId ?? null,
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 12 页 / 共 60 页
+</div>
+<div class="code">        params.username ?? null,
+        params.action,
+        params.targetType ?? null,
+        params.targetId ?? null,
+        params.detail ? JSON.stringify(params.detail) : null,
+        params.ip ?? null,
+        params.userAgent ?? null,
+      ]
+    );
+  } catch (err) {
+    logger.error({ err, params }, 'Failed to record audit log');
+  }
+}
+/**
+ * Extract common audit fields from Express request.
+ */
+export function auditFromReq(req: Request): Pick&lt;AuditParams, 'userId' | 'username' | 'ip' | 'userAgent'&gt; {
+  return {
+    userId: req.user?.userId ?? null,
+    username: req.user?.username ?? null,
+    ip: req.ip || req.socket.remoteAddress || null,
+    userAgent: req.headers['user-agent']?.substring(0, 512) || null,
+  };
+}
+
+// server/middleware/auth.ts
+
+import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+import config from '../config';
+import { AuthUser } from '../types';
+export interface JwtPayload {
+  userId: number;
+  username: string;
+  role: string;
+  type?: string; // 'mfa' for MFA intermediate token
+  scope?: string; // 'mfa_setup' for restricted MFA setup token
+  iat?: number;
+  exp?: number;
+}
+export function authenticate(req: Request, res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ code: 401, message: '未提供认证令牌' });
+    return;
+  }
+  const token = authHeader.substring(7);
+  try {
+    const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
+    // Reject MFA intermediate tokens for normal API access
+    if (decoded.type === 'mfa') {
+      res.status(401).json({ code: 401, message: '需要完成 MFA 验证' });
+      return;
+    }
+    // Reject MFA-setup tokens for non-MFA-setup endpoints
+    if (decoded.scope === 'mfa_setup') {
+      const fullPath = req.originalUrl || req.url || '';
+      const allowed = fullPath.includes('/auth/') || fullPath.includes('/profile') || fullPath.includes('/notifications');
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 13 页 / 共 60 页
+</div>
+<div class="code">      if (!allowed) {
+        res.status(403).json({ code: 403, message: '请先完成 MFA 设置' });
+        return;
+      }
+    }
+    req.user = {
+      userId: decoded.userId,
+      username: decoded.username,
+      role: decoded.role as AuthUser['role'],
+    };
+    next();
+  } catch (err) {
+    if (err instanceof jwt.TokenExpiredError) {
+      res.status(401).json({ code: 401, message: '令牌已过期，请重新登录' });
+    } else {
+      res.status(401).json({ code: 401, message: '无效的认证令牌' });
+    }
+  }
+}
+export function optionalAuth(req: Request, _res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+  if (authHeader &amp;&amp; authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    try {
+      const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
+      if (decoded.type !== 'mfa') {
+        req.user = {
+          userId: decoded.userId,
+          username: decoded.username,
+          role: decoded.role as AuthUser['role'],
+        };
+      }
+    } catch {
+      // Token invalid — continue without user
+    }
+  }
+  next();
+}
+
+// server/middleware/errorHandler.ts
+
+import { Request, Response, NextFunction } from 'express';
+import logger from '../utils/logger';
+export function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction): void {
+  logger.error({ err, url: req.url, method: req.method }, 'Unhandled error');
+  const statusCode = (err as any).statusCode || 500;
+  const message = statusCode === 500 ? 'Internal Server Error' : err.message;
+  res.status(statusCode).json({
+    code: statusCode,
+    message,
+  });
+}
+export class AppError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.statusCode = statusCode;
+    this.name = 'AppError';
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 14 页 / 共 60 页
+</div>
+<div class="code">  }
+}
+
+// server/middleware/ipFilter.ts
+
+import { Request, Response, NextFunction } from 'express';
+import pool from '../database/connection';
+import logger from '../utils/logger';
+/** Simple CIDR check: does ip fall within network/mask? */
+function ipInCidr(ip: string, network: string, mask: number): boolean {
+  const ipParts = ip.split('.').map(Number);
+  const netParts = network.split('.').map(Number);
+  if (ipParts.length !== 4 || netParts.length !== 4) return false;
+  const ipInt = (ipParts[0] &lt;&lt; 24) | (ipParts[1] &lt;&lt; 16) | (ipParts[2] &lt;&lt; 8) | ipParts[3];
+  const netInt = (netParts[0] &lt;&lt; 24) | (netParts[1] &lt;&lt; 16) | (netParts[2] &lt;&lt; 8) | netParts[3];
+  const maskInt = ~((1 &lt;&lt; (32 - mask)) - 1);
+  return (ipInt &amp; maskInt) === (netInt &amp; maskInt);
+}
+interface IpWhitelistEntry {
+  network: string;
+  mask: number;
+  enabled: boolean;
+}
+/**
+ * Check if an IP is within any enabled CIDR range in the whitelist.
+ * Returns true if allowed (whitelist is empty or IP matches).
+ * Returns false if rejected (whitelist exists and IP doesn't match).
+ */
+async function isIpAllowed(ip: string): Promise&lt;boolean&gt; {
+  try {
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT network, mask, enabled FROM ip_whitelist WHERE enabled = 1`
+    );
+    if (rows.length === 0) return true; // no whitelist = allow all
+    for (const row of rows) {
+      if (ipInCidr(ip, row.network, row.mask)) return true;
+    }
+    return false;
+  } catch (err) {
+    logger.error({ err }, 'IP whitelist check failed, allowing by default');
+    return true; // fail open
+  }
+}
+/**
+ * Check if a user has a per-user IP binding and if the current IP matches.
+ * Returns true if no binding exists or IP matches.
+ * Returns false if binding exists and IP doesn't match.
+ */
+async function checkUserIpBinding(userId: number, ip: string): Promise&lt;boolean&gt; {
+  try {
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT ip_address FROM user_ip_bindings WHERE user_id = ?`,
+      [userId]
+    );
+    if (rows.length === 0) return true; // no binding
+    const boundIp = rows[0].ip_address;
+    // Check if bound IP is a CIDR range
+    if (boundIp.includes('/')) {
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 15 页 / 共 60 页
+</div>
+<div class="code">      const [net, maskStr] = boundIp.split('/');
+      const mask = parseInt(maskStr, 10);
+      if (!isNaN(mask)) return ipInCidr(ip, net, mask);
+      return boundIp === ip;
+    }
+    return boundIp === ip;
+  } catch {
+    return true; // fail open
+  }
+}
+/**
+ * Express middleware: reject requests from IPs not in the whitelist.
+ * Apply to login endpoint only (not global).
+ */
+export function ipFilterMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+    || req.socket.remoteAddress
+    || '127.0.0.1';
+  isIpAllowed(ip).then((allowed) =&gt; {
+    if (!allowed) {
+      res.status(401).json({ code: 1, message: '此 IP 地址不在允许范围内' });
+      return;
+    }
+    next();
+  }).catch(() =&gt; next());
+}
+/**
+ * Check IP for a specific user during login. Called after IP whitelist check.
+ */
+export async function validateUserIp(userId: number, ip: string): Promise&lt;boolean&gt; {
+  return checkUserIpBinding(userId, ip);
+}
+export function getClientIp(req: Request): string {
+  return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+    || req.socket.remoteAddress
+    || '127.0.0.1';
+}
+
+// server/middleware/rateLimiter.ts
+
+import rateLimit from 'express-rate-limit';
+import type { Request, Response } from 'express';
+import config from '../config';
+/** Auth routes use dedicated loginLimiter — skip general API limiter */
+function isAuthRoute(req: Request): boolean {
+  const path = req.path || '';
+  return (
+    path === '/auth/login' ||
+    path.startsWith('/auth/mfa') ||
+    path === '/auth/logout'
+  );
+}
+function rateLimitHandler(message: string) {
+  return (_req: Request, res: Response, _next: unknown, options: { statusCode: number }) =&gt; {
+    res.status(options.statusCode).json({
+      code: 429,
+      message,
+    });
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 16 页 / 共 60 页
+</div>
+<div class="code">  };
+}
+/**
+ * Login / MFA rate limiter — per real client IP (requires trust proxy behind nginx).
+ */
+export const loginLimiter = rateLimit({
+  windowMs: config.rateLimit.loginWindowMs,
+  max: config.rateLimit.loginMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  handler: rateLimitHandler('登录尝试过于频繁，请稍后再试'),
+});
+/**
+ * General API rate limiter — auth routes excluded (they have loginLimiter).
+ */
+export const apiLimiter = rateLimit({
+  windowMs: config.rateLimit.apiWindowMs,
+  max: config.rateLimit.apiMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: isAuthRoute,
+  handler: rateLimitHandler('请求过多，请稍后再试'),
+});
+
+// server/middleware/rbac.ts
+
+import { Request, Response, NextFunction } from 'express';
+import { UserRole } from '../types';
+/**
+ * Require one of the specified roles to access the route.
+ * Must be used after `authenticate` middleware.
+ */
+export function requireRole(...roles: UserRole[]) {
+  return (req: Request, res: Response, next: NextFunction): void =&gt; {
+    if (!req.user) {
+      res.status(401).json({ code: 401, message: '未认证' });
+      return;
+    }
+    if (!roles.includes(req.user.role as UserRole)) {
+      res.status(403).json({ code: 403, message: '权限不足' });
+      return;
+    }
+    next();
+  };
+}
+/**
+ * Requires admin role.
+ */
+export const requireAdmin = requireRole('admin');
+/**
+ * Requires admin or auditor role.
+ */
+export const requireAdminOrAuditor = requireRole('admin', 'auditor');
+/**
+ * Requires any authenticated user (operator+).
+ */
+export const requireUser = requireRole('admin', 'operator', 'auditor');
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 17 页 / 共 60 页
+</div>
+<div class="code">
+// server/middleware/validator.ts
+
+import { Request, Response, NextFunction } from 'express';
+import { ZodSchema, ZodError } from 'zod';
+/**
+ * Validate request body against a Zod schema.
+ * Returns 400 with formatted errors on failure.
+ */
+export function validate(schema: ZodSchema) {
+  return (req: Request, res: Response, next: NextFunction): void =&gt; {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      const errors = (result.error as ZodError).errors.map((e) =&gt; ({
+        field: e.path.join('.'),
+        message: e.message,
+      }));
+      res.status(400).json({
+        code: 400,
+        message: '请求参数校验失败',
+        errors,
+      });
+      return;
+    }
+    // Replace body with parsed (and transformed) data
+    req.body = result.data;
+    next();
+  };
+}
+
+// server/routes/assets.ts
+
+import { Router, Request, Response } from 'express';
+import { z } from 'zod';
+import net from 'net';
+import multer from 'multer';
+import { parse } from 'csv-parse/sync';
+import pool from '../database/connection';
+import { authenticate } from '../middleware/auth';
+import { requireAdmin, requireUser } from '../middleware/rbac';
+import { validate } from '../middleware/validator';
+import { recordAudit, auditFromReq } from '../middleware/audit';
+import { encrypt } from '../utils/crypto';
+import { success, error, paginated } from '../utils/response';
+const router = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+// All routes require authentication
+router.use(authenticate);
+// ---- Schemas ----
+const createAssetSchema = z.object({
+  name: z.string().min(1).max(128),
+  host: z.string().min(1).max(255),
+  port: z.number().int().min(1).max(65535),
+  protocol: z.enum(['ssh', 'rdp']).optional(),
+  asset_type: z.enum(['host', 'database']).default('host'),
+  username: z.string().max(64).optional().nullable(),
+  password: z.string().max(256).optional().nullable(),
+  private_key: z.string().optional().nullable(),
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 18 页 / 共 60 页
+</div>
+<div class="code">  group_name: z.string().max(64).default('default'),
+  description: z.string().max(512).optional().nullable(),
+  recording_enabled: z.boolean().optional(),
+  db_type: z.enum(['mssql', 'mysql', 'postgresql']).optional(),
+  database_name: z.string().max(128).optional(),
+});
+const updateAssetSchema = createAssetSchema.partial();
+// ---- GET /api/assets/groups ----
+router.get('/groups', async (req: Request, res: Response) =&gt; {
+  try {
+    const isAdmin = req.user!.role === 'admin';
+    let where = 'WHERE deleted_at IS NULL';
+    const params: any[] = [];
+    if (!isAdmin) {
+      where += ` AND id IN (
+        SELECT az.asset_id FROM authorizations az
+        WHERE az.user_id = ?
+        AND (az.start_time IS NULL OR az.start_time &lt;= NOW())
+        AND (az.end_time IS NULL OR az.end_time &gt;= NOW())
+      )`;
+      params.push(req.user!.userId);
+    }
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT DISTINCT group_name FROM assets ${where} ORDER BY group_name ASC`,
+      params
+    );
+    success(res, rows.map((r) =&gt; r.group_name));
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- GET /api/assets/stats ----
+router.get('/stats', async (req: Request, res: Response) =&gt; {
+  try {
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT
+         COUNT(*) as total,
+         SUM(CASE WHEN asset_type != 'database' AND protocol = 'ssh' THEN 1 ELSE 0 END) as ssh,
+         SUM(CASE WHEN asset_type != 'database' AND protocol = 'rdp' THEN 1 ELSE 0 END) as rdp,
+         SUM(CASE WHEN asset_type = 'database' THEN 1 ELSE 0 END) as \`database\`,
+         SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) as online,
+         SUM(CASE WHEN status = 'offline' THEN 1 ELSE 0 END) as offline
+       FROM assets WHERE deleted_at IS NULL`
+    );
+    success(res, rows[0]);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- GET /api/assets ----
+router.get('/', async (req: Request, res: Response) =&gt; {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 20));
+    const search = req.query.search as string || '';
+    const protocol = req.query.protocol as string || '';
+    const group = req.query.group as string || '';
+    const status = req.query.status as string || '';
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 19 页 / 共 60 页
+</div>
+<div class="code">    const isAdmin = req.user!.role === 'admin';
+    let where = 'WHERE a.deleted_at IS NULL';
+    const params: any[] = [];
+    // Non-admin users can only see authorized assets
+    if (!isAdmin) {
+      where += ` AND a.id IN (
+        SELECT az.asset_id FROM authorizations az
+        WHERE az.user_id = ?
+        AND (az.start_time IS NULL OR az.start_time &lt;= NOW())
+        AND (az.end_time IS NULL OR az.end_time &gt;= NOW())
+      )`;
+      params.push(req.user!.userId);
+    }
+    if (search) {
+      where += ' AND (a.name LIKE ? OR a.host LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    if (protocol) {
+      where += ' AND a.protocol = ? AND a.asset_type != ?';
+      params.push(protocol, 'database');
+    }
+    if (group) {
+      where += ' AND a.group_name = ?';
+      params.push(group);
+    }
+    if (status) {
+      where += ' AND a.status = ?';
+      params.push(status);
+    }
+    const [countRows] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as total FROM assets a ${where}`,
+      params
+    );
+    const total = countRows[0].total;
+    const offset = (page - 1) * pageSize;
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT a.id, a.name, a.host, a.port, a.protocol, a.asset_type, a.db_type, a.database_name, a.username, a.group_name, a.description, a.recording_enabled, a.status, a.last_checked_at, a.created_at, a.updated_at
+       FROM assets a ${where} ORDER BY a.id DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
+    );
+    paginated(res, rows, total, page, pageSize);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- GET /api/assets/:id ----
+router.get('/:id', async (req: Request, res: Response) =&gt; {
+  try {
+    const [rows] = await pool.query&lt;any[]&gt;(
+      'SELECT id, name, host, port, protocol, asset_type, db_type, database_name, username, group_name, description, recording_enabled, status, last_checked_at, created_at, updated_at FROM assets WHERE id = ? AND deleted_at IS NULL',
+      [req.params.id]
+    );
+    if (rows.length === 0) {
+      error(res, '资产不存在', 1, 404);
+      return;
+    }
+    success(res, rows[0]);
+  } catch (err: any) {
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 20 页 / 共 60 页
+</div>
+<div class="code">    error(res, err.message, 1, 500);
+  }
+});
+// ---- POST /api/assets (admin only) ----
+router.post('/', requireAdmin, validate(createAssetSchema), async (req: Request, res: Response) =&gt; {
+  try {
+    const { name, host, port, protocol, username, password, private_key, group_name, description, recording_enabled, asset_type, db_type, database_name } = req.body;
+    const passwordEncrypted = password ? encrypt(password) : null;
+    const privateKeyEncrypted = private_key ? encrypt(private_key) : null;
+    const recordingFlag = recording_enabled === false ? 0 : 1;
+    const assetType = asset_type || 'host';
+    const proto = protocol || (assetType === 'database' ? 'ssh' : 'ssh');
+    const [result] = await pool.query&lt;any&gt;(
+      `INSERT INTO assets (name, host, port, protocol, asset_type, db_type, database_name, username, password_encrypted, private_key_encrypted, group_name, description, recording_enabled)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, host, port, proto, assetType, db_type || null, database_name || null, username || null, passwordEncrypted, privateKeyEncrypted, group_name, description || null, recordingFlag]
+    );
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'create',
+      targetType: 'asset',
+      targetId: result.insertId,
+      detail: { name, host, port, protocol },
+    });
+    success(res, { id: result.insertId }, '资产创建成功', 201);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- PUT /api/assets/:id (admin only) ----
+router.put('/:id', requireAdmin, validate(updateAssetSchema), async (req: Request, res: Response) =&gt; {
+  try {
+    const assetId = parseInt(req.params.id as string);
+    const [existing] = await pool.query&lt;any[]&gt;(
+      'SELECT * FROM assets WHERE id = ? AND deleted_at IS NULL',
+      [assetId]
+    );
+    if (existing.length === 0) {
+      error(res, '资产不存在', 1, 404);
+      return;
+    }
+    const updates: string[] = [];
+    const params: any[] = [];
+    const { name, host, port, protocol, username, password, private_key, group_name, description, recording_enabled } = req.body;
+    if (name !== undefined) { updates.push('name = ?'); params.push(name); }
+    if (host !== undefined) { updates.push('host = ?'); params.push(host); }
+    if (port !== undefined) { updates.push('port = ?'); params.push(port); }
+    if (protocol !== undefined) { updates.push('protocol = ?'); params.push(protocol); }
+    if (username !== undefined) { updates.push('username = ?'); params.push(username); }
+    if (password !== undefined) {
+      updates.push('password_encrypted = ?');
+      params.push(encrypt(password));
+    }
+    if (private_key !== undefined) {
+      updates.push('private_key_encrypted = ?');
+      params.push(encrypt(private_key));
+    }
+    if (group_name !== undefined) { updates.push('group_name = ?'); params.push(group_name); }
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 21 页 / 共 60 页
+</div>
+<div class="code">    if (description !== undefined) { updates.push('description = ?'); params.push(description); }
+    if (recording_enabled !== undefined) {
+      updates.push('recording_enabled = ?');
+      params.push(recording_enabled ? 1 : 0);
+    }
+    if (updates.length === 0) {
+      error(res, '没有需要更新的字段', 1, 400);
+      return;
+    }
+    params.push(assetId);
+    await pool.query(`UPDATE assets SET ${updates.join(', ')} WHERE id = ?`, params);
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'update',
+      targetType: 'asset',
+      targetId: assetId,
+    });
+    success(res, null, '资产更新成功');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- PATCH /api/assets/:id/recording (admin only) ----
+router.patch('/:id/recording', requireAdmin, async (req: Request, res: Response) =&gt; {
+  try {
+    const assetId = parseInt(req.params.id as string, 10);
+    const enabled = req.body?.recording_enabled ?? req.body?.enabled;
+    if (enabled === undefined) {
+      error(res, '缺少 recording_enabled 参数', 1, 400);
+      return;
+    }
+    const [existing] = await pool.query&lt;any[]&gt;(
+      'SELECT id FROM assets WHERE id = ? AND deleted_at IS NULL',
+      [assetId]
+    );
+    if (existing.length === 0) {
+      error(res, '资产不存在', 1, 404);
+      return;
+    }
+    const flag = enabled ? 1 : 0;
+    await pool.query('UPDATE assets SET recording_enabled = ? WHERE id = ?', [flag, assetId]);
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'update',
+      targetType: 'asset',
+      targetId: assetId,
+      detail: { recording_enabled: Boolean(enabled) },
+    });
+    success(res, { recording_enabled: Boolean(enabled) }, enabled ? '已开启会话回放' : '已关闭会话回放');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- DELETE /api/assets/:id (admin only) ----
+router.delete('/:id', requireAdmin, async (req: Request, res: Response) =&gt; {
+  try {
+    const assetId = parseInt(req.params.id as string);
+    const [existing] = await pool.query&lt;any[]&gt;(
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 22 页 / 共 60 页
+</div>
+<div class="code">      'SELECT name FROM assets WHERE id = ? AND deleted_at IS NULL',
+      [assetId]
+    );
+    if (existing.length === 0) {
+      error(res, '资产不存在', 1, 404);
+      return;
+    }
+    await pool.query('UPDATE assets SET deleted_at = NOW() WHERE id = ?', [assetId]);
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'delete',
+      targetType: 'asset',
+      targetId: assetId,
+      detail: { name: existing[0].name },
+    });
+    success(res, null, '资产已删除');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- POST /api/assets/:id/test ----
+router.post('/:id/test', async (req: Request, res: Response) =&gt; {
+  try {
+    const assetId = parseInt(req.params.id as string);
+    const [rows] = await pool.query&lt;any[]&gt;(
+      'SELECT * FROM assets WHERE id = ? AND deleted_at IS NULL',
+      [assetId]
+    );
+    if (rows.length === 0) {
+      error(res, '资产不存在', 1, 404);
+      return;
+    }
+    const asset = rows[0];
+    const startTime = Date.now();
+    // Simple TCP connectivity test
+    await new Promise&lt;void&gt;((resolve, reject) =&gt; {
+      const socket = new net.Socket();
+      socket.setTimeout(5000);
+      socket.on('connect', () =&gt; {
+        socket.destroy();
+        resolve();
+      });
+      socket.on('timeout', () =&gt; {
+        socket.destroy();
+        reject(new Error('连接超时'));
+      });
+      socket.on('error', (err) =&gt; {
+        socket.destroy();
+        reject(err);
+      });
+      socket.connect(asset.port, asset.host);
+    });
+    const latencyMs = Date.now() - startTime;
+    await pool.query(
+      'UPDATE assets SET status = ?, last_checked_at = NOW() WHERE id = ?',
+      ['online', assetId]
+    );
+    success(res, { success: true, latencyMs }, '连接成功');
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 23 页 / 共 60 页
+</div>
+<div class="code">  } catch (err: any) {
+    await pool.query(
+      'UPDATE assets SET status = ?, last_checked_at = NOW() WHERE id = ?',
+      ['offline', parseInt(req.params.id as string)]
+    );
+    success(res, { success: false, latencyMs: 0, error: err.message }, '连接失败');
+  }
+});
+// ---- PATCH /api/assets/group/rename (admin only) ----
+router.patch('/group/rename', requireAdmin, async (req: Request, res: Response) =&gt; {
+  try {
+    const { oldName, newName } = req.body;
+    if (!oldName || !newName || !newName.trim()) {
+      error(res, '分组名称不能为空', 1, 400);
+      return;
+    }
+    const [result] = await pool.query&lt;any&gt;(
+      'UPDATE assets SET group_name = ? WHERE group_name = ? AND deleted_at IS NULL',
+      [newName.trim(), oldName]
+    );
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'update',
+      targetType: 'asset_group',
+      detail: { oldName, newName: newName.trim(), affected: result.affectedRows },
+    });
+    success(res, { affected: result.affectedRows }, `已将 ${result.affectedRows} 个资产移至分组「${newName.trim()}」`);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- POST /api/assets/import (admin only) ----
+router.post('/import', requireAdmin, upload.single('file'), async (req: Request, res: Response) =&gt; {
+  try {
+    if (!req.file) {
+      error(res, '请上传 CSV 文件', 1, 400);
+      return;
+    }
+    const csvContent = req.file.buffer.toString('utf8');
+    const records = parse(csvContent, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    });
+    let imported = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+    for (let i = 0; i &lt; records.length; i++) {
+      const row = records[i];
+      try {
+        if (!row.name || !row.host || !row.port || !row.protocol) {
+          skipped++;
+          errors.push(`第 ${i + 2} 行: 缺少必填字段`);
+          continue;
+        }
+        const port = parseInt(row.port);
+        if (isNaN(port) || port &lt; 1 || port &gt; 65535) {
+          skipped++;
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 24 页 / 共 60 页
+</div>
+<div class="code">          errors.push(`第 ${i + 2} 行: 端口号无效`);
+          continue;
+        }
+        await pool.query(
+          `INSERT INTO assets (name, host, port, protocol, username, password_encrypted, group_name, description)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            row.name,
+            row.host,
+            port,
+            row.protocol,
+            row.username || null,
+            row.password ? encrypt(row.password) : null,
+            row.group_name || 'default',
+            row.description || null,
+          ]
+        );
+        imported++;
+      } catch (err: any) {
+        skipped++;
+        errors.push(`第 ${i + 2} 行: ${err.message}`);
+      }
+    }
+    success(res, { imported, skipped, total: records.length, errors }, `导入完成: ${imported} 成功, ${skipped} 跳过`, 201);
+  } catch (err: any) {
+    error(res, 'CSV 解析失败: ' + err.message, 1, 400);
+  }
+});
+export default router;
+
+// server/routes/audit.ts
+
+import { Router, Request, Response } from 'express';
+import { Transform } from 'stream';
+import pool from '../database/connection';
+import { authenticate } from '../middleware/auth';
+import { requireAdminOrAuditor } from '../middleware/rbac';
+import { success, error, paginated } from '../utils/response';
+const router = Router();
+// All audit routes require admin or auditor
+router.use(authenticate, requireAdminOrAuditor);
+// ---- GET /api/audit/commands ----
+router.get('/commands', async (req: Request, res: Response) =&gt; {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 20));
+    const username = req.query.username as string || '';
+    const isDangerous = req.query.isDangerous as string || '';
+    const startDate = req.query.startDate as string || '';
+    const endDate = req.query.endDate as string || '';
+    let where = 'WHERE 1=1';
+    const params: any[] = [];
+    if (username) {
+      where += ' AND u.username LIKE ?';
+      params.push(`%${username}%`);
+    }
+    if (isDangerous === '1' || isDangerous === 'true') {
+      where += ' AND c.is_dangerous = 1';
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 25 页 / 共 60 页
+</div>
+<div class="code">    }
+    if (startDate) {
+      where += ' AND c.timestamp &gt;= ?';
+      params.push(startDate);
+    }
+    if (endDate) {
+      where += ' AND c.timestamp &lt;= ?';
+      params.push(endDate + ' 23:59:59');
+    }
+    const [countRows] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as total
+       FROM command_logs c
+       JOIN sessions s ON c.session_id = s.id
+       JOIN users u ON s.user_id = u.id
+       JOIN assets a ON s.asset_id = a.id
+       ${where}`,
+      params
+    );
+    const total = countRows[0].total;
+    const offset = (page - 1) * pageSize;
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT c.*, s.protocol, u.username, a.name as asset_name, a.host as asset_host
+       FROM command_logs c
+       JOIN sessions s ON c.session_id = s.id
+       JOIN users u ON s.user_id = u.id
+       JOIN assets a ON s.asset_id = a.id
+       ${where}
+       ORDER BY c.timestamp DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
+    );
+    paginated(res, rows, total, page, pageSize);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- GET /api/audit ----
+router.get('/', async (req: Request, res: Response) =&gt; {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 20));
+    // Filters
+    const userId = req.query.userId as string || '';
+    const username = req.query.username as string || '';
+    const action = req.query.action as string || '';
+    const targetType = req.query.targetType as string || '';
+    const startDate = req.query.startDate as string || '';
+    const endDate = req.query.endDate as string || '';
+    let where = 'WHERE 1=1';
+    const params: any[] = [];
+    if (userId) {
+      where += ' AND user_id = ?';
+      params.push(parseInt(userId));
+    }
+    if (username) {
+      where += ' AND username LIKE ?';
+      params.push(`%${username}%`);
+    }
+    if (action) {
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 26 页 / 共 60 页
+</div>
+<div class="code">      where += ' AND action = ?';
+      params.push(action);
+    }
+    if (targetType) {
+      where += ' AND target_type = ?';
+      params.push(targetType);
+    }
+    if (startDate) {
+      where += ' AND created_at &gt;= ?';
+      params.push(startDate);
+    }
+    if (endDate) {
+      where += ' AND created_at &lt;= ?';
+      params.push(endDate + ' 23:59:59');
+    }
+    const [countRows] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as total FROM audit_logs ${where}`,
+      params
+    );
+    const total = countRows[0].total;
+    const offset = (page - 1) * pageSize;
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT * FROM audit_logs ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
+    );
+    // Parse detail JSON
+    const list = rows.map((r: any) =&gt; ({
+      ...r,
+      detail: r.detail ? (typeof r.detail === 'string' ? JSON.parse(r.detail) : r.detail) : null,
+    }));
+    paginated(res, list, total, page, pageSize);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- GET /api/audit/export ----
+router.get('/export', async (req: Request, res: Response) =&gt; {
+  try {
+    const username = req.query.username as string || '';
+    const action = req.query.action as string || '';
+    const targetType = req.query.targetType as string || '';
+    const startDate = req.query.startDate as string || '';
+    const endDate = req.query.endDate as string || '';
+    let where = 'WHERE 1=1';
+    const params: any[] = [];
+    if (username) {
+      where += ' AND username LIKE ?';
+      params.push(`%${username}%`);
+    }
+    if (action) {
+      where += ' AND action = ?';
+      params.push(action);
+    }
+    if (targetType) {
+      where += ' AND target_type = ?';
+      params.push(targetType);
+    }
+    if (startDate) {
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 27 页 / 共 60 页
+</div>
+<div class="code">      where += ' AND created_at &gt;= ?';
+      params.push(startDate);
+    }
+    if (endDate) {
+      where += ' AND created_at &lt;= ?';
+      params.push(endDate + ' 23:59:59');
+    }
+    // Limit export to 10000 rows
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT id, user_id, username, action, target_type, target_id, detail, ip, user_agent, created_at
+       FROM audit_logs ${where} ORDER BY created_at DESC LIMIT 10000`,
+      params
+    );
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename=&quot;audit-export.csv&quot;');
+    // CSV header
+    res.write('id,user_id,username,action,target_type,target_id,detail,ip,user_agent,created_at\n');
+    // CSV rows (simple escaping)
+    for (const row of rows) {
+      const line = [
+        row.id,
+        row.user_id ?? '',
+        `&quot;${(row.username || '').replace(/&quot;/g, '&quot;&quot;')}&quot;`,
+        row.action,
+        row.target_type ?? '',
+        row.target_id ?? '',
+        `&quot;${((typeof row.detail === 'string' ? row.detail : JSON.stringify(row.detail)) || '').replace(/&quot;/g, '&quot;&quot;')}&quot;`,
+        row.ip ?? '',
+        `&quot;${(row.user_agent || '').replace(/&quot;/g, '&quot;&quot;')}&quot;`,
+        row.created_at,
+      ].join(',');
+      res.write(line + '\n');
+    }
+    res.end();
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- GET /api/audit/stats ----
+router.get('/stats', async (_req: Request, res: Response) =&gt; {
+  try {
+    const [todayCount] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as count FROM audit_logs WHERE created_at &gt;= CURDATE()`
+    );
+    const [connectCount] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as count FROM audit_logs
+       WHERE action = 'connect' AND created_at &gt;= DATE_SUB(NOW(), INTERVAL 30 DAY)`
+    );
+    const [dangerousCount] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as count FROM command_logs WHERE is_dangerous = 1 AND timestamp &gt;= DATE_SUB(NOW(), INTERVAL 30 DAY)`
+    );
+    const [blockedCount] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as count FROM command_logs WHERE is_blocked = 1 AND timestamp &gt;= DATE_SUB(NOW(), INTERVAL 30 DAY)`
+    );
+    const [actionDist] = await pool.query&lt;any[]&gt;(
+      `SELECT action, COUNT(*) as count FROM audit_logs
+       WHERE created_at &gt;= DATE_SUB(NOW(), INTERVAL 30 DAY)
+       GROUP BY action ORDER BY count DESC`
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 28 页 / 共 60 页
+</div>
+<div class="code">    );
+    const [dailyCounts] = await pool.query&lt;any[]&gt;(
+      `SELECT DATE(created_at) as date, COUNT(*) as count
+       FROM audit_logs
+       WHERE created_at &gt;= DATE_SUB(NOW(), INTERVAL 30 DAY)
+       GROUP BY DATE(created_at) ORDER BY date`
+    );
+    const [topUsers] = await pool.query&lt;any[]&gt;(
+      `SELECT username, COUNT(*) as count FROM audit_logs
+       WHERE created_at &gt;= DATE_SUB(NOW(), INTERVAL 30 DAY) AND username IS NOT NULL
+       GROUP BY username ORDER BY count DESC LIMIT 10`
+    );
+    success(res, {
+      todayCount: todayCount[0].count,
+      connectCount: connectCount[0].count,
+      dangerousCount: dangerousCount[0].count,
+      blockedCount: blockedCount[0].count,
+      actionDistribution: actionDist,
+      dailyCounts,
+      topUsers,
+    });
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+export default router;
+
+// server/routes/auth.ts
+
+import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import speakeasy from 'speakeasy';
+import { z } from 'zod';
+import pool from '../database/connection';
+import config from '../config';
+import { authenticate } from '../middleware/auth';
+import { loginLimiter } from '../middleware/rateLimiter';
+import { validate } from '../middleware/validator';
+import { recordAudit, auditFromReq } from '../middleware/audit';
+import { success, error } from '../utils/response';
+import { passwordPolicyService } from '../services/passwordPolicyService';
+import { notificationService } from '../services/notificationService';
+import { emailService } from '../services/emailService';
+import logger from '../utils/logger';
+import { captchaService } from '../services/captchaService';
+const router = Router();
+// ---- Zod Schemas ----
+const loginSchema = z.object({
+  username: z.string().min(1).max(64),
+  password: z.string().min(1).max(128),
+  captcha_id: z.string().optional(),
+  captcha_answer: z.string().optional(),
+});
+const mfaVerifySchema = z.object({
+  mfaToken: z.string().min(1),
+  code: z.string().length(6),
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 29 页 / 共 60 页
+</div>
+<div class="code">  remember_me: z.boolean().optional(),
+});
+const mfaEnableSchema = z.object({
+  code: z.string().length(6),
+});
+const mfaRecoverySchema = z.object({
+  username: z.string().min(1).max(64),
+  recoveryCode: z.string().min(1),
+});
+const changePasswordSchema = z.object({
+  oldPassword: z.string().min(1),
+  newPassword: z.string().min(8).regex(/^(?=.*[a-zA-Z])(?=.*\d)/, '密码必须包含字母和数字'),
+});
+// ---- Helpers ----
+function generateToken(userId: number, username: string, role: string): string {
+  return jwt.sign(
+    { userId, username, role },
+    config.jwt.secret,
+    { expiresIn: config.jwt.expiresIn } as jwt.SignOptions
+  );
+}
+function generateMfaToken(userId: number): string {
+  return jwt.sign(
+    { userId, type: 'mfa' },
+    config.jwt.secret,
+    { expiresIn: '5m' } as jwt.SignOptions
+  );
+}
+function sanitizeUser(user: any) {
+  const { password_hash, totp_secret, mfa_recovery, ...safe } = user;
+  return {
+    ...safe,
+    mfa_enabled: !!user.mfa_enabled,
+  };
+}
+function loginError(
+  res: Response,
+  message: string,
+  extra?: { requireCaptcha?: boolean; loginFails?: number; locked?: boolean }
+) {
+  error(res, message, 1, 401, extra);
+}
+// ---- GET /api/auth/captcha ----
+router.get('/captcha', async (_req: Request, res: Response) =&gt; {
+  try {
+    const { id, question, expiresIn } = captchaService.generate();
+    success(res, { challenge_id: id, question, expires_in: expiresIn });
+  } catch (err: any) {
+    error(res, '验证码生成失败: ' + err.message, 1, 500);
+  }
+});
+// ---- POST /api/auth/login ----
+router.post('/login', loginLimiter, validate(loginSchema), async (req: Request, res: Response) =&gt; {
+  try {
+    const { username, password, captcha_id, captcha_answer } = req.body;
+    const { ip, userAgent } = auditFromReq(req);
+    const policy = await passwordPolicyService.getPolicy();
+    // Find user
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 30 页 / 共 60 页
+</div>
+<div class="code">    const [rows] = await pool.query&lt;any[]&gt;(
+      'SELECT * FROM users WHERE username = ? AND deleted_at IS NULL',
+      [username]
+    );
+    if (rows.length === 0) {
+      // Record failed login (no user)
+      await pool.query(
+        'INSERT INTO login_logs (user_id, username, ip, user_agent, result) VALUES (NULL, ?, ?, ?, ?)',
+        [username, ip, userAgent, 'fail_no_user']
+      );
+      loginError(res, '用户名或密码错误');
+      return;
+    }
+    const user = rows[0];
+    // Check account disabled
+    if (user.status === 'disabled') {
+      loginError(res, '账号已被禁用');
+      return;
+    }
+    // Check lock
+    if (user.locked_until &amp;&amp; new Date(user.locked_until) &gt; new Date()) {
+      await pool.query(
+        'INSERT INTO login_logs (user_id, username, ip, user_agent, result) VALUES (?, ?, ?, ?, ?)',
+        [user.id, username, ip, userAgent, 'fail_locked']
+      );
+      loginError(res, '账号已被锁定，请稍后再试', { locked: true, loginFails: user.login_fails });
+      return;
+    }
+    const needsCaptcha = user.login_fails &gt;= policy.captcha_threshold;
+    if (needsCaptcha) {
+      if (!captcha_id || captcha_answer === undefined || captcha_answer === '') {
+        loginError(res, '请输入验证码', { requireCaptcha: true, loginFails: user.login_fails });
+        return;
+      }
+      if (!captchaService.verify(captcha_id, captcha_answer)) {
+        loginError(res, '验证码错误或已过期', { requireCaptcha: true, loginFails: user.login_fails });
+        return;
+      }
+    }
+    // Verify password
+    const validPwd = await bcrypt.compare(password, user.password_hash);
+    if (!validPwd) {
+      // Increment login fails
+      const fails = user.login_fails + 1;
+      const lockedUntil = fails &gt;= policy.lockout_threshold
+        ? new Date(Date.now() + policy.lockout_minutes * 60 * 1000)
+        : null;
+      await pool.query(
+        'UPDATE users SET login_fails = ?, locked_until = ? WHERE id = ?',
+        [fails, lockedUntil, user.id]
+      );
+      await pool.query(
+        'INSERT INTO login_logs (user_id, username, ip, user_agent, result) VALUES (?, ?, ?, ?, ?)',
+        [user.id, username, ip, userAgent, 'fail_wrong_password']
+      );
+      if (lockedUntil) {
+        await notificationService.create(user.id, 'account_locked', ip || undefined);
+        loginError(res, '登录失败次数过多，账号已被锁定', {
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 31 页 / 共 60 页
+</div>
+<div class="code">          locked: true,
+          loginFails: fails,
+          requireCaptcha: fails &gt;= policy.captcha_threshold,
+        });
+        return;
+      }
+      loginError(res, '用户名或密码错误', {
+        requireCaptcha: fails &gt;= policy.captcha_threshold,
+        loginFails: fails,
+      });
+      return;
+    }
+    // Password valid — reset fail counter
+    const knownIps: string[] = user.known_ips ? (typeof user.known_ips === 'string' ? JSON.parse(user.known_ips) : user.known_ips) : [];
+    const clientIp = ip || '0.0.0.0';
+    const isNewIp = knownIps.length &gt; 0 &amp;&amp; !knownIps.includes(clientIp);
+    const updatedIps = knownIps.includes(clientIp) ? knownIps : [...knownIps.slice(-19), clientIp];
+    await pool.query(
+      'UPDATE users SET login_fails = 0, locked_until = NULL, last_login = NOW(), known_ips = ? WHERE id = ?',
+      [JSON.stringify(updatedIps), user.id]
+    );
+    // Check password policy (must change / expired)
+    if (user.must_change_password) {
+      const token = generateToken(user.id, user.username, user.role);
+      success(res, { token, user: sanitizeUser(user), require_password_change: true }, '请修改初始密码');
+      return;
+    }
+    if (policy.expire_days &gt; 0 &amp;&amp; user.password_changed_at) {
+      const changedAt = new Date(user.password_changed_at);
+      const expireAt = new Date(changedAt.getTime() + policy.expire_days * 24 * 60 * 60 * 1000);
+      if (new Date() &gt; expireAt) {
+        await pool.query('UPDATE users SET must_change_password = 1 WHERE id = ?', [user.id]);
+        const token = generateToken(user.id, user.username, user.role);
+        success(res, { token, user: sanitizeUser(user), require_password_change: true }, '密码已过期，请修改密码');
+        return;
+      }
+    }
+    // Create notification for new IP login
+    if (isNewIp) {
+      await notificationService.create(user.id, 'new_ip_login', clientIp);
+    }
+    // Global MFA policy: must enable MFA before full access
+    if (policy.require_mfa &amp;&amp; !user.mfa_enabled) {
+      // Issue restricted token — only allows /auth/ and /profile endpoints
+      const token = jwt.sign(
+        { userId: user.id, username: user.username, role: user.role, scope: 'mfa_setup' },
+        config.jwt.secret,
+        { expiresIn: '30m' }
+      );
+      success(res, { token, user: sanitizeUser(user), require_mfa_setup: true }, '请先启用 MFA');
+      return;
+    }
+    // Check trusted device cookie — skip MFA if valid
+    const trustToken = req.cookies?.mfa_trust;
+    logger.info({ hasTrustCookie: !!trustToken, userId: user.id, cookies: Object.keys(req.cookies || {}) }, 'Login trust check');
+    if (trustToken &amp;&amp; user.mfa_enabled) {
+      try {
+        const trustPayload = jwt.verify(trustToken, config.jwt.secret) as { userId: number; deviceId: string };
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 32 页 / 共 60 页
+</div>
+<div class="code">        if (trustPayload.userId === user.id) {
+          // Trusted device — skip MFA, issue full token directly
+          logger.info({ userId: user.id }, 'Trusted device — skipping MFA');
+          const token = generateToken(user.id, user.username, user.role);
+          await pool.query('UPDATE users SET login_fails = 0, locked_until = NULL, last_login = NOW() WHERE id = ?', [user.id]);
+          await pool.query('INSERT INTO login_logs (user_id, username, ip, user_agent, result, mfa_used) VALUES (?, ?, ?, ?, ?, 0)',
+            [user.id, username, ip, userAgent, 'success']);
+          await recordAudit({ userId: user.id, username: user.username, action: 'login', ip, userAgent });
+          success(res, { token, user: sanitizeUser(user) }, '登录成功（可信设备）');
+          return;
+        }
+      } catch { /* trust token invalid, proceed to MFA */ }
+    }
+    // If MFA enabled, check method
+    if (user.mfa_enabled) {
+      if (user.mfa_method === 'email' &amp;&amp; user.email) {
+        // Email MFA: send code and return session token
+        const { code, error: sendError } = await emailService.sendCode(user.email);
+        if (sendError || !code) {
+          error(res, '验证码邮件发送失败，请稍后重试或联系管理员', 1, 500);
+          return;
+        }
+        const sessionToken = crypto.randomUUID();
+        const codeHash = await bcrypt.hash(code, 10);
+        await pool.query(
+          `INSERT INTO email_mfa_codes (user_id, code_hash, email, expires_at, session_token) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE), ?)`,
+          [user.id, codeHash, user.email, sessionToken]
+        );
+        const maskedEmail = user.email.replace(/(.{2}).*(@.*)/, '$1***$2');
+        success(res, { require_email_mfa: true, session_token: sessionToken, email_hint: maskedEmail }, '验证码已发送至邮箱');
+        return;
+      }
+      // TOTP MFA (default)
+      const mfaToken = generateMfaToken(user.id);
+      success(res, { requireMfa: true, mfaToken }, '需要 MFA 验证');
+      return;
+    }
+    // Full login success
+    const token = generateToken(user.id, user.username, user.role);
+    await pool.query(
+      'INSERT INTO login_logs (user_id, username, ip, user_agent, result, mfa_used) VALUES (?, ?, ?, ?, ?, 0)',
+      [user.id, username, ip, userAgent, 'success']
+    );
+    await recordAudit({
+      userId: user.id,
+      username: user.username,
+      action: 'login',
+      ip,
+      userAgent,
+    });
+    success(res, { token, user: sanitizeUser(user) }, '登录成功');
+  } catch (err: any) {
+    error(res, '登录失败: ' + err.message, 1, 500);
+  }
+});
+// ---- POST /api/auth/mfa/verify ----
+router.post('/mfa/verify', loginLimiter, validate(mfaVerifySchema), async (req: Request, res: Response) =&gt; {
+  try {
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 33 页 / 共 60 页
+</div>
+<div class="code">    const { mfaToken, code } = req.body;
+    const { ip, userAgent } = auditFromReq(req);
+    // Verify mfaToken
+    let decoded: any;
+    try {
+      decoded = jwt.verify(mfaToken, config.jwt.secret);
+    } catch {
+      error(res, 'MFA 令牌无效或已过期', 1, 401);
+      return;
+    }
+    if (decoded.type !== 'mfa' || !decoded.userId) {
+      error(res, '无效的 MFA 令牌', 1, 401);
+      return;
+    }
+    // Find user
+    const [rows] = await pool.query&lt;any[]&gt;(
+      'SELECT * FROM users WHERE id = ? AND deleted_at IS NULL',
+      [decoded.userId]
+    );
+    if (rows.length === 0) {
+      error(res, '用户不存在', 1, 401);
+      return;
+    }
+    const user = rows[0];
+    if (!user.totp_secret) {
+      error(res, 'MFA 未配置', 1, 400);
+      return;
+    }
+    // Verify TOTP
+    const verified = speakeasy.totp.verify({
+      secret: user.totp_secret,
+      encoding: 'base32',
+      token: code,
+      window: 2, // ±2 intervals = 150s tolerance for clock skew // ±1 interval = 90s total window
+    });
+    if (!verified) {
+      await pool.query(
+        'INSERT INTO login_logs (user_id, username, ip, user_agent, result, mfa_used) VALUES (?, ?, ?, ?, ?, 1)',
+        [user.id, user.username, ip, userAgent, 'fail_mfa']
+      );
+      error(res, 'MFA 验证码错误', 1, 401);
+      return;
+    }
+    // MFA success — issue full JWT
+    const token = generateToken(user.id, user.username, user.role);
+    // Trust device cookie (7 days)
+    const { remember_me } = req.body || {};
+    logger.info({ remember_me, hasCookie: !!req.cookies }, 'MFA verify — checking remember_me');
+    if (remember_me) {
+      const deviceId = crypto.randomUUID();
+      const trustJwt = jwt.sign({ userId: user.id, deviceId }, config.jwt.secret, { expiresIn: '7d' });
+      logger.info({ userId: user.id }, 'Setting mfa_trust cookie');
+      res.cookie('mfa_trust', trustJwt, {
+        httpOnly: true,
+        secure: false, // Allow on HTTP (nginx handles HTTPS if needed)
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        path: '/',
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 34 页 / 共 60 页
+</div>
+<div class="code">      });
+    }
+    await pool.query(
+      'INSERT INTO login_logs (user_id, username, ip, user_agent, result, mfa_used) VALUES (?, ?, ?, ?, ?, 1)',
+      [user.id, user.username, ip, userAgent, 'success']
+    );
+    await recordAudit({
+      userId: user.id,
+      username: user.username,
+      action: 'login',
+      ip,
+      userAgent,
+    });
+    success(res, { token, user: sanitizeUser(user) }, 'MFA 验证成功');
+  } catch (err: any) {
+    error(res, 'MFA 验证失败: ' + err.message, 1, 500);
+  }
+});
+// ---- POST /api/auth/mfa/setup ----
+router.post('/mfa/setup', authenticate, async (req: Request, res: Response) =&gt; {
+  try {
+    const userId = req.user!.userId;
+    const [rows] = await pool.query&lt;any[]&gt;(
+      'SELECT username, mfa_enabled FROM users WHERE id = ? AND deleted_at IS NULL',
+      [userId]
+    );
+    if (rows.length === 0) {
+      error(res, '用户不存在', 1, 404);
+      return;
+    }
+    if (rows[0].mfa_enabled) {
+      error(res, 'MFA 已启用，请先禁用在重新设置', 1, 400);
+      return;
+    }
+    const secret = speakeasy.generateSecret({
+      name: `${rows[0].username}@Bastion`,
+      issuer: 'Bastion',
+    });
+    // Store secret but don't enable yet
+    await pool.query('UPDATE users SET totp_secret = ? WHERE id = ?', [secret.base32, userId]);
+    success(res, {
+      secret: secret.base32,
+      otpauth_url: secret.otpauth_url,
+    }, 'MFA 设置已生成，请使用 Google Authenticator 扫码');
+  } catch (err: any) {
+    error(res, 'MFA 设置失败: ' + err.message, 1, 500);
+  }
+});
+// ---- POST /api/auth/mfa/enable ----
+router.post('/mfa/enable', authenticate, validate(mfaEnableSchema), async (req: Request, res: Response) =&gt; {
+  try {
+    const userId = req.user!.userId;
+    const { code } = req.body;
+    const [rows] = await pool.query&lt;any[]&gt;(
+      'SELECT totp_secret, mfa_enabled FROM users WHERE id = ? AND deleted_at IS NULL',
+      [userId]
+    );
+    if (rows.length === 0) {
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 35 页 / 共 60 页
+</div>
+<div class="code">      error(res, '用户不存在', 1, 404);
+      return;
+    }
+    const user = rows[0];
+    if (!user.totp_secret) {
+      error(res, '请先执行 MFA 设置', 1, 400);
+      return;
+    }
+    if (user.mfa_enabled) {
+      error(res, 'MFA 已启用', 1, 400);
+      return;
+    }
+    // Verify the code before enabling
+    const verified = speakeasy.totp.verify({
+      secret: user.totp_secret,
+      encoding: 'base32',
+      token: code,
+      window: 2, // ±2 intervals = 150s tolerance for clock skew
+    });
+    if (!verified) {
+      logger.warn({ userId, hasSecret: !!user.totp_secret, secretLen: user.totp_secret?.length }, 'TOTP verification failed during MFA enable');
+      error(res, '验证码错误，请确认手机时间与服务器时间一致后重新扫码', 1, 400);
+      return;
+    }
+    // Generate recovery codes (8 codes, 10 chars each)
+    const recoveryCodes: string[] = [];
+    for (let i = 0; i &lt; 8; i++) {
+      const code = Array.from({ length: 10 }, () =&gt;
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[
+          Math.floor(Math.random() * 62)
+        ]
+      ).join('');
+      recoveryCodes.push(code);
+    }
+    // Hash recovery codes
+    const hashedCodes = await Promise.all(
+      recoveryCodes.map(c =&gt; bcrypt.hash(c, 8))
+    );
+    await pool.query(
+      'UPDATE users SET mfa_enabled = 1, mfa_recovery = ? WHERE id = ?',
+      [JSON.stringify(hashedCodes), userId]
+    );
+    await recordAudit({
+      userId,
+      username: req.user!.username,
+      action: 'mfa_enable',
+      targetType: 'user',
+      targetId: userId,
+    });
+    // Issue new full token so user doesn't need to re-login
+    const token = generateToken(userId, req.user!.username, req.user!.role);
+    success(res, { recoveryCodes, token }, 'MFA 已启用，请妥善保管恢复码');
+  } catch (err: any) {
+    error(res, 'MFA 启用失败: ' + err.message, 1, 500);
+  }
+});
+// ---- POST /api/auth/mfa/recovery/view ----
+router.post('/mfa/recovery/view', authenticate, validate(z.object({ password: z.string().min(1) })), async (req: Request, res: Response) =&gt; {
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 36 页 / 共 60 页
+</div>
+<div class="code">  try {
+    const userId = req.user!.userId;
+    const [rows] = await pool.query&lt;any[]&gt;(
+      'SELECT password_hash, mfa_recovery, mfa_enabled FROM users WHERE id = ? AND deleted_at IS NULL',
+      [userId]
+    );
+    if (rows.length === 0 || !rows[0].mfa_enabled) { error(res, 'MFA 未启用', 1, 400); return; }
+    const valid = await bcrypt.compare(req.body.password, rows[0].password_hash);
+    if (!valid) { error(res, '密码错误', 1, 401); return; }
+    const codes = rows[0].mfa_recovery;
+    if (!codes) { error(res, '没有恢复码记录', 1, 400); return; }
+    // Return count of remaining codes (NOT the codes themselves — those are hashed)
+    const parsed = typeof codes === 'string' ? JSON.parse(codes) : codes;
+    success(res, { remaining: Array.isArray(parsed) ? parsed.length : 6 }, `还有 ${Array.isArray(parsed) ? parsed.length : 6} 个恢复码可用`);
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+// ---- POST /api/auth/mfa/recovery/regenerate ----
+router.post('/mfa/recovery/regenerate', authenticate, validate(z.object({ password: z.string().min(1) })), async (req: Request, res: Response) =&gt; {
+  try {
+    const userId = req.user!.userId;
+    const [rows] = await pool.query&lt;any[]&gt;(
+      'SELECT password_hash, mfa_enabled FROM users WHERE id = ? AND deleted_at IS NULL',
+      [userId]
+    );
+    if (rows.length === 0 || !rows[0].mfa_enabled) { error(res, 'MFA 未启用', 1, 400); return; }
+    const valid = await bcrypt.compare(req.body.password, rows[0].password_hash);
+    if (!valid) { error(res, '密码错误', 1, 401); return; }
+    // Generate new recovery codes (8 codes, 10 chars)
+    const codes: string[] = [];
+    for (let i = 0; i &lt; 8; i++) {
+      codes.push(Array.from({ length: 10 }, () =&gt; 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[Math.floor(Math.random() * 36)]).join(''));
+    }
+    const hashedCodes = await Promise.all(codes.map(c =&gt; bcrypt.hash(c, 8)));
+    await pool.query('UPDATE users SET mfa_recovery = ? WHERE id = ?', [JSON.stringify(hashedCodes), userId]);
+    await recordAudit({ userId, username: req.user!.username, action: 'mfa_recovery_regenerate', targetType: 'user', targetId: userId });
+    success(res, { recoveryCodes: codes }, '恢复码已重新生成，请妥善保管');
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+// ---- POST /api/auth/mfa/disable ----
+router.post('/mfa/disable', authenticate, validate(z.object({ password: z.string().min(1) })), async (req: Request, res: Response) =&gt; {
+  try {
+    const userId = req.user!.userId;
+    const { password } = req.body;
+    const [rows] = await pool.query&lt;any[]&gt;(
+      'SELECT password_hash, mfa_enabled FROM users WHERE id = ? AND deleted_at IS NULL',
+      [userId]
+    );
+    if (rows.length === 0) {
+      error(res, '用户不存在', 1, 404);
+      return;
+    }
+    if (!rows[0].mfa_enabled) {
+      error(res, 'MFA 未启用', 1, 400);
+      return;
+    }
+    const validPwd = await bcrypt.compare(password, rows[0].password_hash);
+    if (!validPwd) {
+      error(res, '密码错误', 1, 401);
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 37 页 / 共 60 页
+</div>
+<div class="code">      return;
+    }
+    await pool.query(
+      'UPDATE users SET mfa_enabled = 0, mfa_method = NULL, totp_secret = NULL, mfa_recovery = NULL WHERE id = ?',
+      [userId]
+    );
+    await recordAudit({
+      userId,
+      username: req.user!.username,
+      action: 'mfa_disable',
+      targetType: 'user',
+      targetId: userId,
+    });
+    success(res, null, 'MFA 已禁用');
+  } catch (err: any) {
+    error(res, 'MFA 禁用失败: ' + err.message, 1, 500);
+  }
+});
+// ---- POST /api/auth/mfa/recovery ----
+router.post('/mfa/recovery', loginLimiter, validate(mfaRecoverySchema), async (req: Request, res: Response) =&gt; {
+  try {
+    const { username, recoveryCode } = req.body;
+    const { ip, userAgent } = auditFromReq(req);
+    const [rows] = await pool.query&lt;any[]&gt;(
+      'SELECT * FROM users WHERE username = ? AND deleted_at IS NULL AND mfa_enabled = 1',
+      [username]
+    );
+    if (rows.length === 0) {
+      error(res, '用户不存在或未启用 MFA', 1, 401);
+      return;
+    }
+    const user = rows[0];
+    if (!user.mfa_recovery) {
+      error(res, '没有可用的恢复码', 1, 400);
+      return;
+    }
+    let hashedCodes: string[];
+    try {
+      hashedCodes = typeof user.mfa_recovery === 'string'
+        ? JSON.parse(user.mfa_recovery)
+        : user.mfa_recovery;
+    } catch {
+      error(res, '恢复码数据异常', 1, 500);
+      return;
+    }
+    // Try to match the recovery code against hashed codes
+    let matchedIndex = -1;
+    for (let i = 0; i &lt; hashedCodes.length; i++) {
+      const match = await bcrypt.compare(recoveryCode, hashedCodes[i]);
+      if (match) {
+        matchedIndex = i;
+        break;
+      }
+    }
+    if (matchedIndex === -1) {
+      // Track failed recovery attempts — lock account after 5
+      const fails = (user.login_fails || 0) + 1;
+      const lockedUntil = fails &gt;= 5
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 38 页 / 共 60 页
+</div>
+<div class="code">        ? new Date(Date.now() + 15 * 60 * 1000)
+        : null;
+      await pool.query('UPDATE users SET login_fails = ?, locked_until = ? WHERE id = ?',
+        [fails, lockedUntil, user.id]);
+      await pool.query(
+        'INSERT INTO login_logs (user_id, username, ip, user_agent, result) VALUES (?, ?, ?, ?, ?)',
+        [user.id, username, ip, userAgent, 'fail_mfa']
+      );
+      if (lockedUntil) {
+        error(res, '恢复码尝试次数过多，账号已锁定 15 分钟', 1, 401);
+      } else {
+        error(res, `恢复码无效，剩余 ${5 - fails} 次尝试`, 1, 401);
+      }
+      return;
+    }
+    // Remove used recovery code
+    hashedCodes.splice(matchedIndex, 1);
+    await pool.query(
+      'UPDATE users SET mfa_recovery = ? WHERE id = ?',
+      [JSON.stringify(hashedCodes), user.id]
+    );
+    // Issue full JWT (bypass MFA)
+    const token = generateToken(user.id, user.username, user.role);
+    await pool.query(
+      'INSERT INTO login_logs (user_id, username, ip, user_agent, result, mfa_used) VALUES (?, ?, ?, ?, ?, 2)',
+      [user.id, username, ip, userAgent, 'success']
+    );
+    await recordAudit({
+      userId: user.id,
+      username: user.username,
+      action: 'login_recovery',
+      ip,
+      userAgent,
+    });
+    success(res, { token, user: sanitizeUser(user) }, '恢复登录成功，剩余恢复码: ' + hashedCodes.length);
+  } catch (err: any) {
+    error(res, '恢复登录失败: ' + err.message, 1, 500);
+  }
+});
+// ---- POST /api/auth/logout ----
+router.post('/logout', authenticate, async (req: Request, res: Response) =&gt; {
+  await recordAudit({
+    ...auditFromReq(req),
+    action: 'logout',
+  });
+  success(res, null, '已登出');
+});
+// ---- GET /api/auth/me ----
+router.get('/me', authenticate, async (req: Request, res: Response) =&gt; {
+  try {
+    const [rows] = await pool.query&lt;any[]&gt;(
+      'SELECT * FROM users WHERE id = ? AND deleted_at IS NULL',
+      [req.user!.userId]
+    );
+    if (rows.length === 0) {
+      error(res, '用户不存在', 1, 404);
+      return;
+    }
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 39 页 / 共 60 页
+</div>
+<div class="code">    success(res, sanitizeUser(rows[0]));
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- POST /api/auth/change-password ----
+router.post('/change-password', authenticate, validate(changePasswordSchema), async (req: Request, res: Response) =&gt; {
+  try {
+    const userId = req.user!.userId;
+    const { oldPassword, newPassword } = req.body;
+    const [rows] = await pool.query&lt;any[]&gt;(
+      'SELECT password_hash FROM users WHERE id = ?',
+      [userId]
+    );
+    const valid = await bcrypt.compare(oldPassword, rows[0].password_hash);
+    if (!valid) {
+      error(res, '原密码错误', 1, 401);
+      return;
+    }
+    // Validate against password policy
+    const policy = await passwordPolicyService.getPolicy();
+    const policyError = passwordPolicyService.validateComplexity(newPassword, policy);
+    if (policyError) {
+      error(res, policyError, 1, 400);
+      return;
+    }
+    // Check password history
+    const reused = await passwordPolicyService.isInHistory(userId, newPassword, policy.history_count);
+    if (reused) {
+      error(res, '不能使用最近使用过的密码', 1, 400);
+      return;
+    }
+    const newHash = await bcrypt.hash(newPassword, 10);
+    // Save to history and update user
+    await passwordPolicyService.addToHistory(userId, newHash, policy.history_count);
+    await pool.query(
+      'UPDATE users SET password_hash = ?, password_changed_at = NOW(), must_change_password = 0 WHERE id = ?',
+      [newHash, userId]
+    );
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'change_password',
+      targetType: 'user',
+      targetId: userId,
+    });
+    await notificationService.create(userId, 'password_changed', (req as any).ip);
+    success(res, null, '密码修改成功');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ═══════════════════ Email MFA ═══════════════════
+const emailMfaSchema = z.object({
+  session_token: z.string().min(1),
+  code: z.string().length(6),
+  remember_me: z.boolean().optional(),
+});
+// POST /api/auth/mfa/email/verify
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 40 页 / 共 60 页
+</div>
+<div class="code">router.post('/mfa/email/verify', loginLimiter, validate(emailMfaSchema), async (req: Request, res: Response) =&gt; {
+  try {
+    const { session_token, code } = req.body;
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT * FROM email_mfa_codes WHERE session_token = ? AND expires_at &gt; NOW() ORDER BY created_at DESC LIMIT 1`,
+      [session_token]
+    );
+    if (rows.length === 0) { error(res, '验证码已过期或无效', 1, 401); return; }
+    const record = rows[0];
+    if (record.attempts &gt;= 3) {
+      await pool.query('DELETE FROM email_mfa_codes WHERE id = ?', [record.id]);
+      error(res, '验证码尝试次数过多，请重新获取', 1, 401);
+      return;
+    }
+    const valid = await bcrypt.compare(code, record.code_hash);
+    if (!valid) {
+      await pool.query('UPDATE email_mfa_codes SET attempts = attempts + 1 WHERE id = ?', [record.id]);
+      const remaining = 2 - record.attempts;
+      error(res, `验证码错误，剩余 ${remaining} 次尝试`, 1, 401);
+      return;
+    }
+    // Code verified — clean up and issue JWT
+    await pool.query('DELETE FROM email_mfa_codes WHERE id = ?', [record.id]);
+    const [users] = await pool.query&lt;any[]&gt;('SELECT * FROM users WHERE id = ?', [record.user_id]);
+    const user = users[0];
+    await pool.query('UPDATE users SET login_fails = 0, locked_until = NULL, last_login = NOW() WHERE id = ?', [user.id]);
+    const token = generateToken(user.id, user.username, user.role);
+    await pool.query('INSERT INTO login_logs (user_id, username, ip, user_agent, result, mfa_used) VALUES (?, ?, ?, ?, ?, 1)',
+      [user.id, user.username, auditFromReq(req).ip, auditFromReq(req).userAgent, 'success']);
+    await recordAudit({ userId: user.id, username: user.username, action: 'login', ip: auditFromReq(req).ip || undefined, userAgent: auditFromReq(req).userAgent || undefined });
+    const { remember_me: rm } = req.body || {};
+    if (rm) {
+      const deviceId = crypto.randomUUID();
+      const trustJwt = jwt.sign({ userId: user.id, deviceId }, config.jwt.secret, { expiresIn: '7d' });
+      res.cookie('mfa_trust', trustJwt, {
+        httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000, path: '/',
+      });
+    }
+    success(res, { token, user: sanitizeUser(user) }, '邮件验证码确认成功');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// POST /api/auth/mfa/email/enable — start email MFA setup (send code)
+router.post('/mfa/email/enable', authenticate, async (req: Request, res: Response) =&gt; {
+  try {
+    const userId = req.user!.userId;
+    const [rows] = await pool.query&lt;any[]&gt;('SELECT email, mfa_enabled FROM users WHERE id = ?', [userId]);
+    if (rows.length === 0) { error(res, '用户不存在', 1, 404); return; }
+    if (rows[0].mfa_enabled) { error(res, 'MFA 已启用，请先禁用再重新设置', 1, 400); return; }
+    const email = rows[0].email;
+    if (!email) { error(res, '请先在个人设置中绑定邮箱', 1, 400); return; }
+    const { code, error: sendError } = await emailService.sendCode(email);
+    if (sendError || !code) { error(res, '验证码发送失败: ' + (sendError || 'unknown'), 1, 500); return; }
+    const codeHash = await bcrypt.hash(code, 10);
+    // Store temp code for verification
+    await pool.query('DELETE FROM email_mfa_codes WHERE user_id = ?', [userId]);
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 41 页 / 共 60 页
+</div>
+<div class="code">    await pool.query(
+      `INSERT INTO email_mfa_codes (user_id, code_hash, email, expires_at, session_token) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE), ?)`,
+      [userId, codeHash, email, 'mfa_setup_' + userId]
+    );
+    success(res, { email_hint: email.replace(/(.{2}).*(@.*)/, '$1***$2') }, '验证码已发送');
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+// POST /api/auth/mfa/email/enable/verify — verify email code and enable
+router.post('/mfa/email/enable/verify', authenticate, async (req: Request, res: Response) =&gt; {
+  try {
+    const userId = req.user!.userId;
+    const { code } = req.body;
+    if (!code || code.length !== 6) { error(res, '请输入 6 位验证码', 1, 400); return; }
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT * FROM email_mfa_codes WHERE user_id = ? AND session_token = ? AND expires_at &gt; NOW() ORDER BY created_at DESC LIMIT 1`,
+      [userId, 'mfa_setup_' + userId]
+    );
+    if (rows.length === 0) { error(res, '验证码已过期或未发送', 1, 400); return; }
+    const valid = await bcrypt.compare(code, rows[0].code_hash);
+    if (!valid) { error(res, '验证码错误', 1, 400); return; }
+    await pool.query('DELETE FROM email_mfa_codes WHERE user_id = ?', [userId]);
+    // Generate recovery codes
+    const codes = Array.from({ length: 6 }, () =&gt; crypto.randomBytes(4).toString('hex').toUpperCase());
+    const hashedCodes = await Promise.all(codes.map(c =&gt; bcrypt.hash(c, 10)));
+    await pool.query(
+      'UPDATE users SET mfa_enabled = 1, mfa_method = ?, mfa_recovery = ? WHERE id = ?',
+      ['email', JSON.stringify(hashedCodes), userId]
+    );
+    success(res, { recoveryCodes: codes }, '邮箱 MFA 已启用');
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+// POST /api/auth/mfa/email/resend
+router.post('/mfa/email/resend', loginLimiter, async (req: Request, res: Response) =&gt; {
+  try {
+    const { session_token } = req.body;
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT * FROM email_mfa_codes WHERE session_token = ? ORDER BY created_at DESC LIMIT 1`,
+      [session_token]
+    );
+    if (rows.length === 0) { error(res, '会话无效', 1, 400); return; }
+    const record = rows[0];
+    // Rate limit: 3 codes per 15 min
+    const [countRows] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as cnt FROM email_mfa_codes WHERE user_id = ? AND created_at &gt; DATE_SUB(NOW(), INTERVAL 15 MINUTE)`,
+      [record.user_id]
+    );
+    if (countRows[0].cnt &gt;= 3) {
+      error(res, '验证码请求过于频繁，请 15 分钟后重试', 1, 429);
+      return;
+    }
+    await pool.query('DELETE FROM email_mfa_codes WHERE session_token = ?', [session_token]);
+    const { code, error: sendError } = await emailService.sendCode(record.email);
+    if (sendError || !code) { error(res, '邮件发送失败: ' + (sendError || 'unknown'), 1, 500); return; }
+    const codeHash = await bcrypt.hash(code, 10);
+    await pool.query(
+      `INSERT INTO email_mfa_codes (user_id, code_hash, email, expires_at, session_token) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE), ?)`,
+      [record.user_id, codeHash, record.email, session_token]
+    );
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 42 页 / 共 60 页
+</div>
+<div class="code">    success(res, null, '验证码已重新发送');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+export default router;
+
+// server/routes/authorizations.ts
+
+import { Router, Request, Response } from 'express';
+import { z } from 'zod';
+import pool from '../database/connection';
+import { authenticate } from '../middleware/auth';
+import { requireAdmin } from '../middleware/rbac';
+import { validate } from '../middleware/validator';
+import { recordAudit, auditFromReq } from '../middleware/audit';
+import { success, error, paginated } from '../utils/response';
+const router = Router();
+router.use(authenticate, requireAdmin);
+const AUTHZ_STATUS_SQL = `
+  CASE
+    WHEN a.end_time IS NOT NULL AND a.end_time &lt; NOW() THEN 'expired'
+    WHEN a.start_time IS NOT NULL AND a.start_time &gt; NOW() THEN 'pending'
+    ELSE 'active'
+  END
+`;
+const createAuthzSchema = z.object({
+  user_id: z.number().int().positive(),
+  asset_id: z.number().int().positive(),
+  start_time: z.string().optional().nullable(),
+  end_time: z.string().optional().nullable(),
+});
+const updateAuthzSchema = z.object({
+  start_time: z.string().optional().nullable(),
+  end_time: z.string().optional().nullable(),
+});
+const batchCreateSchema = z.object({
+  user_id: z.number().int().positive(),
+  asset_ids: z.array(z.number().int().positive()).min(1),
+  start_time: z.string().optional().nullable(),
+  end_time: z.string().optional().nullable(),
+});
+function validateTimeRange(start_time?: string | null, end_time?: string | null): string | null {
+  if (start_time &amp;&amp; end_time &amp;&amp; new Date(start_time) &gt;= new Date(end_time)) {
+    return '生效时间必须早于过期时间';
+  }
+  return null;
+}
+// ---- GET /api/authorizations/stats ----
+router.get('/stats', async (_req: Request, res: Response) =&gt; {
+  try {
+    const [stats] = await pool.query&lt;any[]&gt;(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE
+          WHEN end_time IS NOT NULL AND end_time &lt; NOW() THEN 0
+          WHEN start_time IS NOT NULL AND start_time &gt; NOW() THEN 0
+          ELSE 1
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 43 页 / 共 60 页
+</div>
+<div class="code">        END) as active,
+        SUM(CASE WHEN end_time IS NOT NULL AND end_time &lt; NOW() THEN 1 ELSE 0 END) as expired,
+        SUM(CASE WHEN start_time IS NOT NULL AND start_time &gt; NOW() THEN 1 ELSE 0 END) as pending
+      FROM authorizations a JOIN assets ast ON a.asset_id = ast.id AND ast.deleted_at IS NULL
+    `);
+    success(res, stats[0]);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- GET /api/authorizations/pairs ----
+router.get('/pairs', async (_req: Request, res: Response) =&gt; {
+  try {
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT a.user_id, a.asset_id FROM authorizations a JOIN assets ast ON a.asset_id = ast.id AND ast.deleted_at IS NULL`
+    );
+    success(res, rows);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- GET /api/authorizations ----
+router.get('/', async (req: Request, res: Response) =&gt; {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 20));
+    const userId = req.query.user_id as string || '';
+    const assetId = req.query.asset_id as string || '';
+    const status = req.query.status as string || '';
+    const protocol = req.query.protocol as string || '';
+    const search = req.query.search as string || '';
+    let where = 'WHERE 1=1';
+    const params: any[] = [];
+    if (userId) {
+      where += ' AND a.user_id = ?';
+      params.push(parseInt(userId));
+    }
+    if (assetId) {
+      where += ' AND a.asset_id = ?';
+      params.push(parseInt(assetId));
+    }
+    if (protocol) {
+      where += ' AND ast.protocol = ?';
+      params.push(protocol);
+    }
+    if (search) {
+      where += ' AND (u.username LIKE ? OR ast.name LIKE ? OR ast.host LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    if (status === 'active') {
+      where += ` AND (${AUTHZ_STATUS_SQL} = 'active')`;
+    } else if (status === 'expired') {
+      where += ` AND (${AUTHZ_STATUS_SQL} = 'expired')`;
+    } else if (status === 'pending') {
+      where += ` AND (${AUTHZ_STATUS_SQL} = 'pending')`;
+    }
+    const [countRows] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as total
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 44 页 / 共 60 页
+</div>
+<div class="code">       FROM authorizations a
+       JOIN users u ON a.user_id = u.id
+       JOIN assets ast ON a.asset_id = ast.id AND ast.deleted_at IS NULL
+       ${where}`,
+      params
+    );
+    const total = countRows[0].total;
+    const offset = (page - 1) * pageSize;
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT a.*,
+              u.username as user_username,
+              ast.name as asset_name, ast.host as asset_host, ast.protocol as asset_protocol,
+              gb.username as granted_by_username,
+              ${AUTHZ_STATUS_SQL} as status
+       FROM authorizations a
+       JOIN users u ON a.user_id = u.id
+       JOIN assets ast ON a.asset_id = ast.id AND ast.deleted_at IS NULL
+       LEFT JOIN users gb ON a.granted_by = gb.id
+       ${where}
+       ORDER BY a.id DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
+    );
+    paginated(res, rows, total, page, pageSize);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- POST /api/authorizations/batch ----
+router.post('/batch', validate(batchCreateSchema), async (req: Request, res: Response) =&gt; {
+  try {
+    const { user_id, asset_ids, start_time, end_time } = req.body;
+    const timeError = validateTimeRange(start_time, end_time);
+    if (timeError) {
+      error(res, timeError, 1, 400);
+      return;
+    }
+    const [users] = await pool.query&lt;any[]&gt;(
+      'SELECT id, username, role FROM users WHERE id = ? AND deleted_at IS NULL AND status = ?',
+      [user_id, 'active']
+    );
+    if (users.length === 0) {
+      error(res, '用户不存在或已禁用', 1, 404);
+      return;
+    }
+    if (users[0].role === 'admin') {
+      error(res, '管理员拥有全部资产访问权限，无需授权', 1, 400);
+      return;
+    }
+    const uniqueIds = [...new Set(asset_ids as number[])];
+    const [assets] = await pool.query&lt;any[]&gt;(
+      `SELECT id, name FROM assets WHERE id IN (${uniqueIds.map(() =&gt; '?').join(',')}) AND deleted_at IS NULL`,
+      uniqueIds
+    );
+    if (assets.length !== uniqueIds.length) {
+      error(res, '部分资产不存在或已删除', 1, 404);
+      return;
+    }
+    const [existing] = await pool.query&lt;any[]&gt;(
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 45 页 / 共 60 页
+</div>
+<div class="code">      `SELECT asset_id FROM authorizations WHERE user_id = ? AND asset_id IN (${uniqueIds.map(() =&gt; '?').join(',')})`,
+      [user_id, ...uniqueIds]
+    );
+    const existingSet = new Set(existing.map((r: any) =&gt; r.asset_id));
+    const toCreate = uniqueIds.filter((id) =&gt; !existingSet.has(id));
+    if (toCreate.length === 0) {
+      error(res, '所选资产均已授权给该用户', 1, 409);
+      return;
+    }
+    const createdIds: number[] = [];
+    for (const assetId of toCreate) {
+      const [result] = await pool.query&lt;any&gt;(
+        'INSERT INTO authorizations (user_id, asset_id, start_time, end_time, granted_by) VALUES (?, ?, ?, ?, ?)',
+        [user_id, assetId, start_time || null, end_time || null, req.user!.userId]
+      );
+      createdIds.push(result.insertId);
+    }
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'create',
+      targetType: 'authorization',
+      targetId: createdIds[0],
+      detail: { user_id, asset_ids: toCreate, start_time, end_time, count: toCreate.length },
+    });
+    success(res, {
+      created: toCreate.length,
+      skipped: uniqueIds.length - toCreate.length,
+      ids: createdIds,
+    }, `成功创建 ${toCreate.length} 条授权`, 201);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- POST /api/authorizations ----
+router.post('/', validate(createAuthzSchema), async (req: Request, res: Response) =&gt; {
+  try {
+    const { user_id, asset_id, start_time, end_time } = req.body;
+    const timeError = validateTimeRange(start_time, end_time);
+    if (timeError) {
+      error(res, timeError, 1, 400);
+      return;
+    }
+    const [users] = await pool.query&lt;any[]&gt;(
+      'SELECT id FROM users WHERE id = ? AND deleted_at IS NULL',
+      [user_id]
+    );
+    if (users.length === 0) {
+      error(res, '用户不存在', 1, 404);
+      return;
+    }
+    const [assets] = await pool.query&lt;any[]&gt;(
+      'SELECT id FROM assets WHERE id = ? AND deleted_at IS NULL',
+      [asset_id]
+    );
+    if (assets.length === 0) {
+      error(res, '资产不存在', 1, 404);
+      return;
+    }
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 46 页 / 共 60 页
+</div>
+<div class="code">    const [existing] = await pool.query&lt;any[]&gt;(
+      'SELECT id FROM authorizations WHERE user_id = ? AND asset_id = ?',
+      [user_id, asset_id]
+    );
+    if (existing.length &gt; 0) {
+      error(res, '该用户对此资产的授权已存在', 1, 409);
+      return;
+    }
+    const [result] = await pool.query&lt;any&gt;(
+      'INSERT INTO authorizations (user_id, asset_id, start_time, end_time, granted_by) VALUES (?, ?, ?, ?, ?)',
+      [user_id, asset_id, start_time || null, end_time || null, req.user!.userId]
+    );
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'create',
+      targetType: 'authorization',
+      targetId: result.insertId,
+      detail: { user_id, asset_id, start_time, end_time },
+    });
+    success(res, { id: result.insertId }, '授权创建成功', 201);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- PUT /api/authorizations/:id ----
+router.put('/:id', validate(updateAuthzSchema), async (req: Request, res: Response) =&gt; {
+  try {
+    const authzId = parseInt(req.params.id as string);
+    const { start_time, end_time } = req.body;
+    const timeError = validateTimeRange(start_time, end_time);
+    if (timeError) {
+      error(res, timeError, 1, 400);
+      return;
+    }
+    const [existing] = await pool.query&lt;any[]&gt;(
+      'SELECT * FROM authorizations WHERE id = ?',
+      [authzId]
+    );
+    if (existing.length === 0) {
+      error(res, '授权不存在', 1, 404);
+      return;
+    }
+    await pool.query(
+      'UPDATE authorizations SET start_time = ?, end_time = ? WHERE id = ?',
+      [start_time || null, end_time || null, authzId]
+    );
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'update',
+      targetType: 'authorization',
+      targetId: authzId,
+      detail: {
+        before: { start_time: existing[0].start_time, end_time: existing[0].end_time },
+        after: { start_time: start_time || null, end_time: end_time || null },
+      },
+    });
+    success(res, null, '授权更新成功');
+  } catch (err: any) {
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 47 页 / 共 60 页
+</div>
+<div class="code">    error(res, err.message, 1, 500);
+  }
+});
+// ---- DELETE /api/authorizations/:id ----
+router.delete('/:id', async (req: Request, res: Response) =&gt; {
+  try {
+    const authzId = parseInt(req.params.id as string);
+    const [existing] = await pool.query&lt;any[]&gt;(
+      `SELECT a.*, u.username as user_username, ast.name as asset_name
+       FROM authorizations a
+       JOIN users u ON a.user_id = u.id
+       JOIN assets ast ON a.asset_id = ast.id
+       WHERE a.id = ?`,
+      [authzId]
+    );
+    if (existing.length === 0) {
+      error(res, '授权不存在', 1, 404);
+      return;
+    }
+    await pool.query('DELETE FROM authorizations WHERE id = ?', [authzId]);
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'delete',
+      targetType: 'authorization',
+      targetId: authzId,
+      detail: {
+        user_id: existing[0].user_id,
+        asset_id: existing[0].asset_id,
+        user_username: existing[0].user_username,
+        asset_name: existing[0].asset_name,
+      },
+    });
+    success(res, null, '授权已删除');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+export default router;
+
+// server/routes/database.ts
+
+import { Router, Request, Response } from 'express';
+import { authenticate } from '../middleware/auth';
+import { dbQueryService } from '../services/dbQueryService';
+import { recordAudit, auditFromReq } from '../middleware/audit';
+import logger from '../utils/logger';
+import { success, error } from '../utils/response';
+import pool from '../database/connection';
+const router = Router();
+router.use(authenticate);
+// POST /api/database/:id/execute
+router.post('/:id/execute', async (req: Request, res: Response) =&gt; {
+  try {
+    const assetId = parseInt(req.params.id as string);
+    const { sql, database } = req.body;
+    if (!sql?.trim()) { error(res, 'SQL 语句不能为空', 1, 400); return; }
+    const result = await dbQueryService.execute(assetId, sql.trim(), database);
+    // Log to audit
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 48 页 / 共 60 页
+</div>
+<div class="code">    await recordAudit({
+      ...auditFromReq(req),
+      action: 'db_query',
+      targetType: 'database_asset',
+      targetId: assetId,
+      detail: { sql: sql.substring(0, 500), rowCount: result.rowCount, durationMs: result.durationMs },
+    });
+    // Save to history
+    try {
+      await pool.query(
+        `INSERT INTO query_history (user_id, asset_id, query_text, status, row_count, duration_ms) VALUES (?, ?, ?, 'success', ?, ?)`,
+        [req.user!.userId, assetId, sql, result.rowCount, result.durationMs]
+      );
+    } catch { /* non-critical */ }
+    success(res, result, `查询完成 (${result.rowCount} 行, ${result.durationMs}ms)`);
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'SQL execution failed');
+    try {
+      await pool.query(
+        `INSERT INTO query_history (user_id, asset_id, query_text, status, error_message) VALUES (?, ?, ?, 'error', ?)`,
+        [req.user!.userId, parseInt(req.params.id as string), req.body.sql || '', err.message?.substring(0, 500)]
+      );
+    } catch { /* non-critical */ }
+    error(res, err.message, 1, 500);
+  }
+});
+// POST /api/database/0/test (direct test — no asset ID needed)
+router.post('/0/test', async (req: Request, _res: Response) =&gt; {
+  try {
+    const { host, port, db_type, database: dbName, user, password } = req.body;
+    if (db_type === 'mysql') {
+      const mysql2 = require('mysql2/promise');
+      const c = await mysql2.createConnection({ host, port: port || 3306, user, password, database: dbName, connectTimeout: 5000 });
+      await c.ping(); c.end();
+      _res.json({ code: 0, message: '连接成功', data: { success: true } });
+    } else if (db_type === 'postgresql') {
+      const pg = require('pg');
+      const c = new pg.Client({ host, port: port || 5432, user, password, database: dbName, connectionTimeoutMillis: 5000 });
+      await c.connect(); await c.query('SELECT 1'); c.end();
+      _res.json({ code: 0, message: '连接成功', data: { success: true } });
+    } else if (db_type === 'mssql') {
+      const mssql = require('mssql');
+      const pool = await mssql.connect({
+        server: host,
+        port: port || 1433,
+        database: dbName,
+        user,
+        password,
+        options: { encrypt: false, trustServerCertificate: true, connectTimeout: 5000 },
+      });
+      try {
+        await pool.request().query('SELECT 1 AS ok');
+      } finally {
+        await pool.close();
+      }
+      _res.json({ code: 0, message: '连接成功', data: { success: true } });
+    } else {
+      _res.json({ code: 1, message: '不支持的数据库类型: ' + db_type });
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 49 页 / 共 60 页
+</div>
+<div class="code">    }
+  } catch (err: any) { _res.json({ code: 1, message: err.message || '连接失败' }); }
+});
+// POST /api/database/:id/test
+router.post('/:id/test', async (req: Request, res: Response) =&gt; {
+  try {
+    const assetId = parseInt(req.params.id as string);
+    const result = await dbQueryService.testConnection(assetId);
+    await pool.query(
+      'UPDATE assets SET status = ?, last_checked_at = NOW() WHERE id = ?',
+      [result.success ? 'online' : 'offline', assetId]
+    );
+    if (result.success) success(res, result);
+    else error(res, result.message, 1, 400);
+  } catch (err: any) {
+    await pool.query(
+      'UPDATE assets SET status = ?, last_checked_at = NOW() WHERE id = ?',
+      ['offline', parseInt(req.params.id as string)]
+    ).catch(() =&gt; {});
+    error(res, err.message, 1, 500);
+  }
+});
+// GET /api/database/:id/databases
+router.get('/:id/databases', async (req: Request, res: Response) =&gt; {
+  try {
+    const dbs = await dbQueryService.listDatabases(parseInt(req.params.id as string));
+    success(res, dbs);
+  } catch (err: any) { logger.error({ err: err.message }, 'listDatabases failed'); error(res, err.message, 1, 500); }
+});
+// GET /api/database/:id/objects
+router.get('/:id/objects', async (req: Request, res: Response) =&gt; {
+  try {
+    const db = req.query.database as string | undefined;
+    const objects = await dbQueryService.getObjects(parseInt(req.params.id as string), db);
+    success(res, objects);
+  } catch (err: any) { logger.error({ err: err.message }, 'getObjects failed'); error(res, err.message, 1, 500); }
+});
+// GET /api/database/:id/schema
+router.get('/:id/schema', async (req: Request, res: Response) =&gt; {
+  try {
+    const db = req.query.database as string | undefined;
+    const schema = await dbQueryService.getSchema(parseInt(req.params.id as string), db);
+    success(res, schema);
+  } catch (err: any) { logger.error({ err: err.message }, 'getSchema failed'); error(res, err.message, 1, 500); }
+});
+// GET /api/database/:id/table/:table
+router.get('/:id/table/:table', async (req: Request, res: Response) =&gt; {
+  try {
+    const db = req.query.database as string | undefined;
+    const info = await dbQueryService.getTableInfo(parseInt(req.params.id as string), req.params.table as string, db);
+    success(res, info);
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+// GET /api/database/:id/sessions
+router.get('/:id/sessions', async (req: Request, res: Response) =&gt; {
+  try {
+    const sessions = await dbQueryService.getSessions(parseInt(req.params.id as string));
+    success(res, sessions);
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 50 页 / 共 60 页
+</div>
+<div class="code">  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+// DELETE /api/database/:id/sessions/:sessionId
+router.delete('/:id/sessions/:sessionId', async (req: Request, res: Response) =&gt; {
+  try {
+    const assetId = parseInt(req.params.id as string);
+    const sessionId = parseInt(req.params.sessionId as string);
+    await dbQueryService.killSession(assetId, sessionId);
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'db_kill_session',
+      targetType: 'database_asset',
+      targetId: assetId,
+      detail: { sessionId },
+    });
+    success(res, null, '会话已终止');
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+// POST /api/database/:id/export
+router.post('/:id/export', async (req: Request, res: Response) =&gt; {
+  try {
+    const assetId = parseInt(req.params.id as string);
+    const { table, format, limit } = req.body;
+    if (!table?.trim()) { error(res, '请指定表名', 1, 400); return; }
+    if (format !== 'csv' &amp;&amp; format !== 'sql') { error(res, 'format 须为 csv 或 sql', 1, 400); return; }
+    const result = await dbQueryService.exportTable(assetId, table.trim(), format, limit);
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'db_export',
+      targetType: 'database_asset',
+      targetId: assetId,
+      detail: { table, format, rowCount: result.rowCount },
+    });
+    success(res, result);
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+// POST /api/database/:id/import
+router.post('/:id/import', async (req: Request, res: Response) =&gt; {
+  try {
+    const assetId = parseInt(req.params.id as string);
+    const { table, format, content } = req.body;
+    if (!table?.trim()) { error(res, '请指定表名', 1, 400); return; }
+    if (format !== 'csv' &amp;&amp; format !== 'sql') { error(res, 'format 须为 csv 或 sql', 1, 400); return; }
+    if (!content?.trim()) { error(res, '导入内容不能为空', 1, 400); return; }
+    const result = await dbQueryService.importData(assetId, table.trim(), format, content);
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'db_import',
+      targetType: 'database_asset',
+      targetId: assetId,
+      detail: { table, format, affectedRows: result.affectedRows },
+    });
+    success(res, result, `导入完成，影响 ${result.affectedRows} 行`);
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+// GET /api/database/history
+router.get('/history', async (req: Request, res: Response) =&gt; {
+  try {
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 51 页 / 共 60 页
+</div>
+<div class="code">    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT id, asset_id, query_text, db_name, status, row_count, duration_ms, error_message, executed_at
+       FROM query_history WHERE user_id = ? ORDER BY executed_at DESC LIMIT 100`,
+      [req.user!.userId]
+    );
+    success(res, rows);
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+// GET /api/database/saved-queries
+router.get('/saved-queries', async (req: Request, res: Response) =&gt; {
+  try {
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT id, asset_id, name, query_text, created_at FROM saved_queries WHERE user_id = ? ORDER BY updated_at DESC`,
+      [req.user!.userId]
+    );
+    success(res, rows);
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+// POST /api/database/saved-queries
+router.post('/saved-queries', async (req: Request, res: Response) =&gt; {
+  try {
+    const { name, query_text, asset_id } = req.body;
+    if (!name?.trim() || !query_text?.trim()) { error(res, '名称和 SQL 不能为空', 1, 400); return; }
+    await pool.query(
+      `INSERT INTO saved_queries (user_id, asset_id, name, query_text) VALUES (?, ?, ?, ?)`,
+      [req.user!.userId, asset_id || null, name.trim(), query_text.trim()]
+    );
+    success(res, null, '查询已保存');
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+// DELETE /api/database/saved-queries/:id
+router.delete('/saved-queries/:id', async (req: Request, res: Response) =&gt; {
+  try {
+    await pool.query(`DELETE FROM saved_queries WHERE id = ? AND user_id = ?`, [req.params.id, req.user!.userId]);
+    success(res, null, '已删除');
+  } catch (err: any) { error(res, err.message, 1, 500); }
+});
+export default router;
+
+// server/routes/security.ts
+
+import { Router, Request, Response } from 'express';
+import { z } from 'zod';
+import { authenticate } from '../middleware/auth';
+import { requireAdmin } from '../middleware/rbac';
+import { validate } from '../middleware/validator';
+import { passwordPolicyService } from '../services/passwordPolicyService';
+import { notificationService } from '../services/notificationService';
+import { recordAudit, auditFromReq } from '../middleware/audit';
+import pool from '../database/connection';
+import { success, error } from '../utils/response';
+import logger from '../utils/logger';
+/** Simple CIDR validation */
+function isValidCidr(network: string, mask: number): boolean {
+  const parts = network.split('.').map(Number);
+  if (parts.length !== 4 || parts.some(p =&gt; isNaN(p) || p &lt; 0 || p &gt; 255)) return false;
+  return mask &gt;= 0 &amp;&amp; mask &lt;= 32;
+}
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 52 页 / 共 60 页
+</div>
+<div class="code">const router = Router();
+// ── Schemas ──
+const updatePolicySchema = z.object({
+  min_length: z.number().min(8).max(64).optional(),
+  require_upper: z.boolean().optional(),
+  require_lower: z.boolean().optional(),
+  require_digit: z.boolean().optional(),
+  require_special: z.boolean().optional(),
+  expire_days: z.number().min(0).max(365).optional(),
+  history_count: z.number().min(0).max(20).optional(),
+  force_change_on_create: z.boolean().optional(),
+  captcha_threshold: z.number().min(1).max(10).optional(),
+  lockout_threshold: z.number().min(5).max(20).optional(),
+  lockout_minutes: z.number().min(5).max(1440).optional(),
+  require_mfa: z.boolean().optional(),
+});
+const addIpSchema = z.object({
+  network: z.string().min(1),
+  mask: z.number().min(0).max(32),
+  description: z.string().max(255).optional(),
+});
+// ═══════════════════ Password Policy ═══════════════════
+// GET /api/security/ping — verify routes are loaded
+router.get('/ping', (_req: Request, res: Response) =&gt; {
+  success(res, { loaded: true });
+});
+// GET /api/security/password-policy
+router.get('/password-policy', async (_req: Request, res: Response) =&gt; {
+  try {
+    const policy = await passwordPolicyService.getPolicy();
+    success(res, policy);
+  } catch (err: any) {
+    logger.error({ err }, 'GET /password-policy failed');
+    error(res, err?.message || 'Unknown error', 1, 500);
+  }
+});
+// PUT /api/security/password-policy (admin only)
+router.put('/password-policy', authenticate, requireAdmin, validate(updatePolicySchema), async (req: Request, res: Response) =&gt; {
+  try {
+    const policy = await passwordPolicyService.updatePolicy(req.body);
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'update',
+      targetType: 'system_config',
+      detail: { key: 'password_policy', changes: req.body },
+    });
+    success(res, policy, '密码策略已更新');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ═══════════════════ IP Whitelist ═══════════════════
+// GET /api/security/ip-whitelist
+router.get('/ip-whitelist', authenticate, requireAdmin, async (_req: Request, res: Response) =&gt; {
+  try {
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT id, network, mask, description, enabled, created_at FROM ip_whitelist ORDER BY id`
+    );
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 53 页 / 共 60 页
+</div>
+<div class="code">    success(res, rows);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// POST /api/security/ip-whitelist (admin only)
+router.post('/ip-whitelist', authenticate, requireAdmin, validate(addIpSchema), async (req: Request, res: Response) =&gt; {
+  try {
+    const { network, mask, description } = req.body;
+    if (!isValidCidr(network, mask)) {
+      error(res, '无效的 CIDR 格式', 1, 400);
+      return;
+    }
+    const [result] = await pool.query&lt;any&gt;(
+      `INSERT INTO ip_whitelist (network, mask, description) VALUES (?, ?, ?)`,
+      [network, mask, description || null]
+    );
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'create',
+      targetType: 'ip_whitelist',
+      targetId: result.insertId,
+      detail: { network, mask, description },
+    });
+    success(res, { id: result.insertId }, 'IP 白名单已添加');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// DELETE /api/security/ip-whitelist/:id (admin only)
+router.delete('/ip-whitelist/:id', authenticate, requireAdmin, async (req: Request, res: Response) =&gt; {
+  try {
+    const id = parseInt(req.params.id as string);
+    await pool.query('DELETE FROM ip_whitelist WHERE id = ?', [id]);
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'delete',
+      targetType: 'ip_whitelist',
+      targetId: id,
+    });
+    success(res, null, 'IP 白名单已删除');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// PATCH /api/security/ip-whitelist/:id (admin only)
+router.patch('/ip-whitelist/:id', authenticate, requireAdmin, async (req: Request, res: Response) =&gt; {
+  try {
+    const id = parseInt(req.params.id as string);
+    const { enabled } = req.body;
+    await pool.query('UPDATE ip_whitelist SET enabled = ? WHERE id = ?', [enabled ? 1 : 0, id]);
+    success(res, null, enabled ? '白名单规则已启用' : '白名单规则已禁用');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ═══════════════════ SMTP Config ═══════════════════
+// GET /api/security/smtp-config
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 54 页 / 共 60 页
+</div>
+<div class="code">router.get('/smtp-config', authenticate, requireAdmin, async (_req: Request, res: Response) =&gt; {
+  try {
+    const config = await passwordPolicyService.getSmtpConfig();
+    const { password, ...safe } = config;
+    success(res, { ...safe, configured: !!config.host });
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// PUT /api/security/smtp-config
+router.put('/smtp-config', authenticate, requireAdmin, async (req: Request, res: Response) =&gt; {
+  try {
+    const config = await passwordPolicyService.updateSmtpConfig(req.body);
+    const { password, ...safe } = config;
+    success(res, { ...safe, configured: true }, 'SMTP 配置已保存');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ═══════════════════ Notifications ═══════════════════
+// GET /api/notifications
+router.get('/notifications', authenticate, async (req: Request, res: Response) =&gt; {
+  try {
+    const unreadOnly = req.query.unread_only === 'true';
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+    const list = await notificationService.getNotifications(req.user!.userId, unreadOnly, limit);
+    const unreadCount = await notificationService.getUnreadCount(req.user!.userId);
+    success(res, { list, unread_count: unreadCount });
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// GET /api/notifications/unread-count
+router.get('/notifications/unread-count', authenticate, async (req: Request, res: Response) =&gt; {
+  try {
+    const count = await notificationService.getUnreadCount(req.user!.userId);
+    success(res, { count });
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// POST /api/notifications/mark-read
+router.post('/notifications/mark-read', authenticate, async (req: Request, res: Response) =&gt; {
+  try {
+    const { ids, all } = req.body;
+    await notificationService.markRead(req.user!.userId, ids, !!all);
+    success(res, null, '已标记为已读');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+export default router;
+
+// server/routes/sessions.ts
+
+import { Router, Request, Response } from 'express';
+import fs from 'fs';
+import pool from '../database/connection';
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 55 页 / 共 60 页
+</div>
+<div class="code">import { authenticate } from '../middleware/auth';
+import { requireAdmin } from '../middleware/rbac';
+import { success, error, paginated } from '../utils/response';
+import { SessionManager } from '../terminal/sessionManager';
+import { recordAudit, auditFromReq } from '../middleware/audit';
+const router = Router();
+router.use(authenticate);
+let sessionManager: SessionManager;
+export function setSessionManager(sm: SessionManager): void {
+  sessionManager = sm;
+}
+// ---- GET /api/sessions ----
+router.get('/', async (req: Request, res: Response) =&gt; {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 20));
+    const status = req.query.status as string || '';
+    const protocol = req.query.protocol as string || '';
+    const hasRecording = req.query.hasRecording === '1' || req.query.hasRecording === 'true';
+    let where = 'WHERE 1=1';
+    const params: any[] = [];
+    if (req.user!.role !== 'admin' &amp;&amp; req.user!.role !== 'auditor') {
+      where += ' AND s.user_id = ?';
+      params.push(req.user!.userId);
+    }
+    if (status) {
+      where += ' AND s.status = ?';
+      params.push(status);
+    } else if (hasRecording) {
+      where += &quot; AND s.status IN ('closed', 'terminated', 'timeout')&quot;;
+    }
+    if (protocol) {
+      where += ' AND s.protocol = ?';
+      params.push(protocol);
+    }
+    if (hasRecording) {
+      where += ' AND s.recording_path IS NOT NULL';
+    }
+    const [countRows] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as total FROM sessions s ${where}`,
+      params
+    );
+    const total = countRows[0].total;
+    const offset = (page - 1) * pageSize;
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT s.*, u.username, a.name as asset_name, a.host as asset_host
+       FROM sessions s
+       JOIN users u ON s.user_id = u.id
+       JOIN assets a ON s.asset_id = a.id
+       ${where}
+       ORDER BY s.start_time DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
+    );
+    paginated(res, rows, total, page, pageSize);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 56 页 / 共 60 页
+</div>
+<div class="code">// ---- GET /api/sessions/active (admin only) ----
+router.get('/active', requireAdmin, async (_req: Request, res: Response) =&gt; {
+  try {
+    const active = sessionManager ? sessionManager.getAllActive() : [];
+    if (active.length === 0) {
+      success(res, []);
+      return;
+    }
+    const dbIds = active.map((s) =&gt; s.dbSessionId).filter(Boolean) as number[];
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT s.id, u.username, a.name AS asset_name, a.host AS asset_host
+       FROM sessions s
+       JOIN users u ON s.user_id = u.id
+       JOIN assets a ON s.asset_id = a.id
+       WHERE s.id IN (?)`,
+      [dbIds]
+    );
+    const meta = new Map(rows.map((r) =&gt; [r.id, r]));
+    const enriched = active.map((s) =&gt; {
+      const info = s.dbSessionId ? meta.get(s.dbSessionId) : undefined;
+      return {
+        ...s,
+        username: info?.username,
+        asset_name: info?.asset_name,
+        asset_host: info?.asset_host,
+      };
+    });
+    success(res, enriched);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- POST /api/sessions/terminate-all (admin only) ----
+router.post('/terminate-all', requireAdmin, async (req: Request, res: Response) =&gt; {
+  try {
+    if (!sessionManager) {
+      success(res, { terminated: 0 }, '无活跃会话');
+      return;
+    }
+    const excludeSelf = req.body?.excludeSelf !== false;
+    const adminId = req.user!.userId;
+    const active = sessionManager.getAllActive();
+    let terminated = 0;
+    for (const session of active) {
+      if (excludeSelf &amp;&amp; session.userId === adminId) continue;
+      if (session.dbSessionId) {
+        await sessionManager.terminate(session.dbSessionId, 'admin');
+        terminated++;
+      }
+    }
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'terminate_all',
+      targetType: 'session',
+      detail: { terminated, excludeSelf },
+    });
+    success(res, { terminated }, `已阻断 ${terminated} 个会话`);
+  } catch (err: any) {
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 57 页 / 共 60 页
+</div>
+<div class="code">    error(res, err.message, 1, 500);
+  }
+});
+// ---- GET /api/sessions/:id ----
+router.get('/:id', async (req: Request, res: Response) =&gt; {
+  try {
+    const sessionId = parseInt(req.params.id as string, 10);
+    if (isNaN(sessionId)) {
+      error(res, '无效的会话 ID', 1, 400);
+      return;
+    }
+    let where = 'WHERE s.id = ?';
+    const params: any[] = [sessionId];
+    if (req.user!.role !== 'admin' &amp;&amp; req.user!.role !== 'auditor') {
+      where += ' AND s.user_id = ?';
+      params.push(req.user!.userId);
+    }
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT s.*, u.username, a.name as asset_name, a.host as asset_host
+       FROM sessions s
+       JOIN users u ON s.user_id = u.id
+       JOIN assets a ON s.asset_id = a.id
+       ${where}`,
+      params
+    );
+    if (rows.length === 0) {
+      error(res, '会话不存在', 1, 404);
+      return;
+    }
+    success(res, rows[0]);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- POST /api/sessions/:id/terminate (admin only) ----
+router.post('/:id/terminate', requireAdmin, async (req: Request, res: Response) =&gt; {
+  try {
+    const dbId = parseInt(req.params.id as string, 10);
+    if (isNaN(dbId)) {
+      error(res, '无效的会话 ID', 1, 400);
+      return;
+    }
+    const [rows] = await pool.query&lt;any[]&gt;(
+      'SELECT id, status, user_id FROM sessions WHERE id = ?',
+      [dbId]
+    );
+    if (rows.length === 0 || rows[0].status !== 'active') {
+      error(res, '活跃会话不存在', 1, 404);
+      return;
+    }
+    if (sessionManager) {
+      await sessionManager.terminate(dbId, 'admin');
+    } else {
+      await pool.query(
+        &quot;UPDATE sessions SET status = 'terminated', end_time = NOW(3), termination_by = 'admin' WHERE id = ?&quot;,
+        [dbId]
+      );
+    }
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 58 页 / 共 60 页
+</div>
+<div class="code">    await recordAudit({
+      ...auditFromReq(req),
+      action: 'terminate',
+      targetType: 'session',
+      targetId: dbId,
+      detail: { userId: rows[0].user_id },
+    });
+    success(res, null, '会话已强制断开');
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- GET /api/sessions/:id/recording ----
+router.get('/:id/recording', async (req: Request, res: Response) =&gt; {
+  try {
+    const sessionId = parseInt(req.params.id as string, 10);
+    const [rows] = await pool.query&lt;any[]&gt;(
+      'SELECT id, user_id, protocol, recording_path FROM sessions WHERE id = ?',
+      [sessionId]
+    );
+    if (rows.length === 0) {
+      error(res, '会话不存在', 1, 404);
+      return;
+    }
+    const isPrivileged = req.user!.role === 'admin' || req.user!.role === 'auditor';
+    if (!isPrivileged &amp;&amp; rows[0].user_id !== req.user!.userId) {
+      error(res, '无权访问该会话录像', 1, 403);
+      return;
+    }
+    const recordingPath = rows[0].recording_path;
+    if (!recordingPath || !fs.existsSync(recordingPath)) {
+      error(res, '录像文件不存在', 1, 404);
+      return;
+    }
+    const stat = fs.statSync(recordingPath);
+    if (stat.size === 0) {
+      error(res, '录像文件为空', 1, 404);
+      return;
+    }
+    const isCast = rows[0].protocol === 'ssh' || recordingPath.endsWith('.cast');
+    res.setHeader(
+      'Content-Type',
+      isCast ? 'application/x-ndjson' : 'application/octet-stream'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename=&quot;session-${sessionId}${isCast ? '.cast' : '.guac'}&quot;`
+    );
+    const stream = fs.createReadStream(recordingPath);
+    stream.pipe(res);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+export default router;
+
+// server/routes/users.ts
+
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 59 页 / 共 60 页
+</div>
+<div class="code">import { Router, Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
+import { z } from 'zod';
+import pool from '../database/connection';
+import { authenticate } from '../middleware/auth';
+import { requireAdmin } from '../middleware/rbac';
+import { validate } from '../middleware/validator';
+import { recordAudit, auditFromReq } from '../middleware/audit';
+import { success, error, paginated } from '../utils/response';
+import { passwordPolicyService } from '../services/passwordPolicyService';
+const router = Router();
+// All routes require authentication + admin
+router.use(authenticate, requireAdmin);
+// ---- Schemas ----
+const createUserSchema = z.object({
+  username: z.string().min(3).max(64).regex(/^[a-zA-Z0-9_]+$/, '用户名只能包含字母、数字和下划线'),
+  password: z.string().min(8).regex(/^(?=.*[a-zA-Z])(?=.*\d)/, '密码必须包含字母和数字'),
+  role: z.enum(['admin', 'operator', 'auditor']).default('operator'),
+  email: z.string().email().optional().nullable(),
+  phone: z.string().max(20).optional().nullable(),
+  status: z.enum(['active', 'disabled']).default('active'),
+});
+const updateUserSchema = z.object({
+  username: z.string().min(3).max(64).regex(/^[a-zA-Z0-9_]+$/).optional(),
+  password: z.string().min(8).regex(/^(?=.*[a-zA-Z])(?=.*\d)/).optional(),
+  role: z.enum(['admin', 'operator', 'auditor']).optional(),
+  email: z.string().email().optional().nullable(),
+  phone: z.string().max(20).optional().nullable(),
+  status: z.enum(['active', 'disabled']).optional(),
+});
+// ---- GET /api/users/stats ----
+router.get('/stats', async (_req: Request, res: Response) =&gt; {
+  try {
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT
+         COUNT(*) as total,
+         SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) as admins,
+         SUM(CASE WHEN role = 'operator' THEN 1 ELSE 0 END) as operators,
+         SUM(CASE WHEN role = 'auditor' THEN 1 ELSE 0 END) as auditors,
+         SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
+         SUM(CASE WHEN status = 'disabled' THEN 1 ELSE 0 END) as disabled,
+         SUM(CASE WHEN mfa_enabled = 1 THEN 1 ELSE 0 END) as mfa_enabled
+       FROM users WHERE deleted_at IS NULL`
+    );
+    success(res, rows[0]);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- GET /api/users ----
+router.get('/', async (req: Request, res: Response) =&gt; {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 20));
+    const search = req.query.search as string || '';
+    const role = req.query.role as string || '';
+    const status = req.query.status as string || '';
+    let where = 'WHERE deleted_at IS NULL';
+</div>
+</div>
+<div class="page">
+<div class="header">
+  <span class="title">堡垒机安全远程运维管理平台 V1.0</span> &mdash; 源代码文档 &mdash; 第 60 页 / 共 60 页
+</div>
+<div class="code">    const params: any[] = [];
+    if (search) {
+      where += ' AND username LIKE ?';
+      params.push(`%${search}%`);
+    }
+    if (role) {
+      where += ' AND role = ?';
+      params.push(role);
+    }
+    if (status) {
+      where += ' AND status = ?';
+      params.push(status);
+    }
+    const [countRows] = await pool.query&lt;any[]&gt;(
+      `SELECT COUNT(*) as total FROM users ${where}`,
+      params
+    );
+    const total = countRows[0].total;
+    const offset = (page - 1) * pageSize;
+    const [rows] = await pool.query&lt;any[]&gt;(
+      `SELECT id, username, role, email, phone, mfa_enabled, status, last_login, created_at, updated_at
+       FROM users ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
+    );
+    const list = rows.map((u: any) =&gt; ({ ...u, mfa_enabled: !!u.mfa_enabled }));
+    paginated(res, list, total, page, pageSize);
+  } catch (err: any) {
+    error(res, err.message, 1, 500);
+  }
+});
+// ---- POST /api/users ----
+router.post('/', validate(createUserSchema), async (req: Request, res: Response) =&gt; {
+  try {
+    const { username, password, role, email, phone, status } = req.body;
+    // Check uniqueness
+    const [existing] = await pool.query&lt;any[]&gt;(
+      'SELECT id FROM users WHERE username = ? AND deleted_at IS NULL',
+      [username]
+    );
+    if (existing.length &gt; 0) {
+      error(res, '用户名已存在', 1, 409);
+      return;
+    }
+    const passwordHash = await bcrypt.hash(password, 10);
+    // Check if policy requires new users to change password on first login
+    const policy = await passwordPolicyService.getPolicy();
+    const mustChange = policy.force_change_on_create ? 1 : 0;
+    const [result] = await pool.query&lt;any&gt;(
+      'INSERT INTO users (username, password_hash, role, email, phone, status, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [username, passwordHash, role, email, phone, status || 'active', mustChange]
+    );
+    await recordAudit({
+      ...auditFromReq(req),
+      action: 'create',
+      targetType: 'user',
+      targetId: result.insertId,
+      detail: { username, role },
+    });
+</div>
+</div>
+</body>
+</html>

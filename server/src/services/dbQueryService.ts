@@ -66,7 +66,7 @@ function mssqlRowsToResult(recordset: any[], rowsAffected?: number[], durationMs
   const affected = rowsAffected?.[0];
   return {
     columns,
-    rows: arrRows.slice(0, 200).map((row) => {
+    rows: arrRows.slice(0, 1000).map((row) => {
       const out: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(row)) {
         out[k] = v instanceof Date ? v.toISOString() : v;
@@ -208,7 +208,7 @@ async function queryMysql(conn: DbConnection, sql: string): Promise<QueryResult>
     const arrRows = Array.isArray(rows) ? rows : [];
     const affected = (rows as any)?.affectedRows;
     return {
-      columns, rows: arrRows.slice(0, 200),
+      columns, rows: arrRows.slice(0, 1000),
       rowCount: affected !== undefined ? affected : arrRows.length,
       durationMs: duration, affectedRows: affected,
     };
@@ -228,7 +228,7 @@ async function queryPostgres(conn: DbConnection, sql: string): Promise<QueryResu
     const duration = Date.now() - start;
     return {
       columns: result.fields?.map((f: any) => f.name) || [],
-      rows: result.rows?.slice(0, 200) || [],
+      rows: result.rows?.slice(0, 1000) || [],
       rowCount: result.rowCount || 0,
       durationMs: duration,
     };

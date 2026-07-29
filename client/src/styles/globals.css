@@ -237,6 +237,12 @@ body {
 
   .stat-card { @apply rounded-xl p-5 transition-all duration-300; background: var(--bg-surface); border: 1px solid var(--border-default); }
   .stat-card:hover { border-color: var(--accent); }
+  .stat-card-clickable { @apply cursor-pointer; }
+  .stat-card-clickable:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+  .stat-card-clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .stat-card-alert { border-color: rgba(239,68,68,0.45); }
+  .stat-card-alert:hover { border-color: rgba(239,68,68,0.65); }
+  .stat-card-loading { opacity: 0.85; }
   .stat-icon {
     @apply flex items-center justify-center w-10 h-10 rounded-lg shrink-0;
     background: linear-gradient(135deg, var(--accent-soft), rgba(6,182,212,0.04));

@@ -12,6 +12,7 @@ import securityRoutes from './routes/security';
 import databaseRoutes from './routes/database';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter } from './middleware/rateLimiter';
+import { authenticate } from './middleware/auth';
 import pool from './database/connection';
 
 const app = express();
@@ -74,7 +75,7 @@ app.use('/api', securityRoutes);  // also mount at /api for /api/notifications e
 app.use('/api/database', databaseRoutes);
 
 // ---- Dashboard stats ----
-app.get('/api/dashboard/stats', async (_req, res) => {
+app.get('/api/dashboard/stats', authenticate, async (_req, res) => {
   try {
     const [totalAssets] = await pool.query<any[]>('SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL');
     const [onlineAssets] = await pool.query<any[]>("SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND status = 'online'");
@@ -97,9 +98,31 @@ app.get('/api/dashboard/stats', async (_req, res) => {
     const [protocolDist] = await pool.query<any[]>(
       `SELECT protocol, COUNT(*) as count FROM assets WHERE deleted_at IS NULL GROUP BY protocol`
     );
-    const [dailySessions] = await pool.query<any[]>(
-      `SELECT DATE(start_time) as date, COUNT(*) as count
-       FROM sessions WHERE start_time >= CURDATE() GROUP BY DATE(start_time)`
+    const [dbDist] = await pool.query<any[]>(
+      `SELECT db_type, COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND asset_type = 'database' GROUP BY db_type`
+    );
+    const [todayQueries] = await pool.query<any[]>(
+      `SELECT COUNT(*) as count FROM query_history WHERE executed_at >= CURDATE()`
+    );
+    const [todayQueryStats] = await pool.query<any[]>(
+      `SELECT status, COUNT(*) as count FROM query_history WHERE executed_at >= CURDATE() GROUP BY status`
+    );
+    const [recentQueries] = await pool.query<any[]>(
+      `SELECT qh.*, u.username
+       FROM query_history qh JOIN users u ON qh.user_id = u.id
+       ORDER BY qh.executed_at DESC LIMIT 5`
+    );
+    const [dbAssetsTotal] = await pool.query<any[]>(
+      `SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND asset_type = 'database'`
+    );
+    const [sshAssets] = await pool.query<any[]>(
+      `SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND asset_type != 'database' AND protocol = 'ssh'`
+    );
+    const [rdpAssets] = await pool.query<any[]>(
+      `SELECT COUNT(*) as count FROM assets WHERE deleted_at IS NULL AND asset_type != 'database' AND protocol = 'rdp'`
+    );
+    const [todayFailedLogins] = await pool.query<any[]>(
+      `SELECT COUNT(*) as count FROM login_logs WHERE created_at >= CURDATE() AND result LIKE 'fail%'`
     );
 
     res.json({
@@ -118,9 +141,22 @@ app.get('/api/dashboard/stats', async (_req, res) => {
           dangerous: dangerousStats[0].count,
         },
         sessionTrend,
-        protocolDist: protocolDist.reduce((acc: any, r: any) => ({ ...acc, [r.protocol]: r.count }), {}),
-        todaySessionsDetail: dailySessions[0]?.count || todaySessions[0].count,
+        protocolDist: {
+          ...protocolDist.reduce((acc: any, r: any) => ({ ...acc, [r.protocol]: r.count }), {}),
+          ...dbDist.reduce((acc: any, r: any) => ({ ...acc, [r.db_type]: r.count }), {}),
+        },
+        dbAssets: { total: dbAssetsTotal[0].count, ...dbDist.reduce((acc: any, r: any) => ({ ...acc, [r.db_type]: r.count }), {}) },
+        sshAssets: sshAssets[0].count,
+        rdpAssets: rdpAssets[0].count,
+        todayQueries: todayQueries[0].count,
+        querySuccessCount: todayQueryStats.filter((r: any) => r.status === 'success').reduce((s: number, r: any) => s + r.count, 0),
+        queryErrorCount: todayQueryStats.filter((r: any) => r.status === 'error').reduce((s: number, r: any) => s + r.count, 0),
+        todayFailedLogins: todayFailedLogins[0].count,
         recentSessions,
+        recentQueries: (recentQueries || []).map((q: any) => ({
+          ...q,
+          query_text: (q.query_text || '').length > 100 ? (q.query_text || '').substring(0, 100) + '...' : (q.query_text || ''),
+        })),
       },
     });
   } catch (err) {
@@ -131,7 +167,17 @@ app.get('/api/dashboard/stats', async (_req, res) => {
         totalAssets: 0, onlineAssets: 0, offlineAssets: 0,
         totalUsers: 0, activeSessions: 0, todaySessions: 0, totalSessions: 0,
         commandStats: { total: 0, dangerous: 0 },
+        sessionTrend: [],
+        protocolDist: {},
+        dbAssets: { total: 0 },
+        sshAssets: 0,
+        rdpAssets: 0,
+        todayQueries: 0,
+        querySuccessCount: 0,
+        queryErrorCount: 0,
+        todayFailedLogins: 0,
         recentSessions: [],
+        recentQueries: [],
       },
     });
   }

@@ -76,7 +76,7 @@ const RenameGroup: React.FC<{ oldName: string; onRenamed: () => void }> = ({ old
 export const Assets: React.FC = () => {
   const [assets, setAssets] = useState<SafeAsset[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
-  const [stats, setStats] = useState<{ total: number; ssh: number; rdp: number; online: number; offline: number } | null>(null);
+  const [stats, setStats] = useState<{ total: number; ssh: number; rdp: number; database: number; online: number; offline: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [dialogVisible, setDialogVisible] = useState(false);
   const [editingAsset, setEditingAsset] = useState<SafeAsset | null>(null);
@@ -281,7 +281,7 @@ export const Assets: React.FC = () => {
       if (res.data?.code === 0) MessagePlugin.success('连接成功');
       else MessagePlugin.warning(res.data?.message || '连接失败');
     } catch { MessagePlugin.error('测试失败'); }
-    finally { setTesting(null); }
+    finally { setTesting(null); fetchAssets(); }
   };
 
   const handleTestConnection = async () => {
@@ -449,7 +449,7 @@ export const Assets: React.FC = () => {
     <div>
       <PageHeader
         title="资产管理"
-        description={`按分组管理 SSH / RDP 远程访问目标，共 ${assetTotal} 个资产、${treeData.length} 个分组`}
+        description={`按分组管理 SSH / RDP / 数据库资产，共 ${assetTotal} 个资产、${treeData.length} 个分组`}
       >
         <Space>
           <Button variant="outline" icon={<RefreshIcon />} onClick={() => { fetchStats(); fetchAssets(); fetchGroups(); }}>
@@ -466,11 +466,12 @@ export const Assets: React.FC = () => {
         </Space>
       </PageHeader>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
-        <StatCard title="资产总数" value={stats?.total ?? '-'} subtitle="SSH + RDP" icon={<ServerIcon size="22px" />} accent="cyan" />
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-5">
+        <StatCard title="资产总数" value={stats?.total ?? '-'} subtitle="SSH + RDP + DB" icon={<ServerIcon size="22px" />} accent="cyan" />
         <StatCard title="SSH" value={stats?.ssh ?? '-'} subtitle="Linux / Unix" icon={<TerminalIcon size="22px" />} accent="blue" />
         <StatCard title="RDP" value={stats?.rdp ?? '-'} subtitle="Windows" icon={<DesktopIcon size="22px" />} accent="amber" />
-        <StatCard title="在线" value={stats?.online ?? '-'} subtitle={`离线 ${stats?.offline ?? 0} 台`} icon={<CheckCircleIcon size="22px" />} accent="green" />
+        <StatCard title="数据库" value={stats?.database ?? '-'} subtitle="MySQL / PG / MSSQL" icon={<FolderOpenIcon size="22px" />} accent="green" />
+        <StatCard title="在线" value={stats?.online ?? '-'} subtitle={`离线 ${stats?.offline ?? 0} 台`} icon={<CheckCircleIcon size="22px" />} accent="purple" />
       </div>
 
       <div className="content-card">
@@ -501,6 +502,7 @@ export const Assets: React.FC = () => {
             options={[
               { value: 'ssh', label: 'SSH' },
               { value: 'rdp', label: 'RDP' },
+              { value: 'database', label: '数据库' },
             ]}
             style={{ width: 120 }}
           />
@@ -595,16 +597,6 @@ export const Assets: React.FC = () => {
               <FormItem label="数据库名" rules={[{ required: true, message: '请输入数据库名' }]}>
                 <Input value={formData.database_name} onChange={(v) => setFormData({ ...formData, database_name: v })} placeholder="输入数据库名称" />
               </FormItem>
-              <FormItem label=" ">
-                <Button variant="outline" icon={<CheckCircleIcon />} loading={testLoading} onClick={handleTestConnection}>
-                  测试连接
-                </Button>
-                {testResult && (
-                  <span className={`ml-3 text-xs ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {testResult.msg}
-                  </span>
-                )}
-              </FormItem>
             </>
           )}
 
@@ -667,6 +659,19 @@ export const Assets: React.FC = () => {
           <FormItem label="描述">
             <Input value={formData.description} onChange={(v) => setFormData({ ...formData, description: v })} />
           </FormItem>
+
+          {formData.asset_type === 'database' && (
+            <FormItem label=" ">
+              <Button variant="outline" icon={<CheckCircleIcon />} loading={testLoading} onClick={handleTestConnection}>
+                测试连接
+              </Button>
+              {testResult && (
+                <span className={`ml-3 text-xs ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {testResult.msg}
+                </span>
+              )}
+            </FormItem>
+          )}
         </Form>
       </Dialog>
     </div>

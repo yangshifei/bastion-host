@@ -118,7 +118,21 @@ router.get('/', async (req: Request, res: Response) => {
 
     const offset = (page - 1) * pageSize;
     const [rows] = await pool.query<any[]>(
-      `SELECT * FROM audit_logs ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      `SELECT a.*,
+         CASE
+           WHEN a.target_type IN ('asset', 'database_asset') THEN ast.name
+           WHEN a.target_type = 'user' THEN target_u.username
+           WHEN a.target_type = 'authorization' THEN CONCAT(auth_u.username, ' → ', auth_ast.name)
+           WHEN a.target_type = 'session' THEN CONCAT('会话 #', a.target_id)
+           ELSE NULL
+         END as target_name
+       FROM audit_logs a
+       LEFT JOIN assets ast ON a.target_type IN ('asset', 'database_asset') AND a.target_id = ast.id
+       LEFT JOIN users target_u ON a.target_type = 'user' AND a.target_id = target_u.id
+       LEFT JOIN authorizations auth ON a.target_type = 'authorization' AND a.target_id = auth.id
+       LEFT JOIN users auth_u ON auth.user_id = auth_u.id
+       LEFT JOIN assets auth_ast ON auth.asset_id = auth_ast.id
+       ${where} ORDER BY a.created_at DESC LIMIT ? OFFSET ?`,
       [...params, pageSize, offset]
     );
 
